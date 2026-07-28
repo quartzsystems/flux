@@ -23,12 +23,14 @@ import {
   IconTopologyRing3,
   type Icon,
 } from '@tabler/icons-react';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { FluxLockup, FluxMark } from '@/components/Brand';
 import { Badge, Skeleton } from '@/components/ui';
+import { api, queryKeys } from '@/lib/api';
 import { useAuth, useRequireAuth } from '@/lib/auth';
 import { type Role } from '@/lib/api-types';
 
@@ -183,7 +185,7 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </nav>
 
       <div className="sidebar-footer">
-        {!collapsed ? <span>v{process.env.NEXT_PUBLIC_FLUX_VERSION ?? '0.1.0'}</span> : null}
+        {!collapsed ? <DaemonVersion /> : null}
         <button
           type="button"
           className="btn btn-ghost btn-icon"
@@ -196,6 +198,24 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
       </div>
     </aside>
   );
+}
+
+/**
+ * The running daemon's version.
+ *
+ * Read from `/system/health` rather than baked into the bundle at build time:
+ * the browser may be holding a cached bundle from a previous release, and a
+ * version string that reports the bundle rather than the daemon is worse than
+ * none at all. The query is already cached by the dashboard, so this is free.
+ */
+function DaemonVersion() {
+  const { data } = useQuery({
+    queryKey: queryKeys.health,
+    queryFn: ({ signal }) => api.system.health(signal),
+    staleTime: 60_000,
+  });
+
+  return <span>{data ? `v${data.version}` : ''}</span>;
 }
 
 /** One navigation entry. */
