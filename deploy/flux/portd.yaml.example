@@ -1,0 +1,24 @@
+# flux-portd allowlist — /etc/flux/portd.yaml
+#
+# The only PCI devices flux-portd will bind, unbind, or report on. Anything not
+# listed here is refused, and there is no wildcard: a rule that is absent means
+# "no".
+#
+# THE MANAGEMENT NIC MUST NEVER APPEAR IN THIS FILE. Binding it to a userspace
+# driver removes the interface from the kernel and takes the appliance off the
+# network — there is no way back except physical console access.
+#
+# Find the data-plane NICs with:
+#
+#     lspci -D | grep -i ethernet
+#     ip -o link show                       # the ones with addresses are in use
+#     ip route show default                 # the one carrying this is management
+#
+# Addresses may be written in full (0000:81:00.0) or short (81:00.0) form; both
+# normalise to the same device.
+
+allow:
+  - "0000:81:00.0"
+  - "0000:81:00.1"
+  - "0000:81:00.2"
+  - "0000:81:00.3"

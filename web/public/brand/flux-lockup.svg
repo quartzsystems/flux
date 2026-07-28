@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100" width="900" height="300" fill="none">
+  <g stroke="#00d992" stroke-linecap="round">
+    <g stroke-width="9">
+      <path d="M77.9 30.5 A34 34 0 0 1 77.9 69.5"></path>
+      <path d="M77.9 30.5 A34 34 0 0 1 77.9 69.5" transform="rotate(90 50 50)"></path>
+      <path d="M77.9 30.5 A34 34 0 0 1 77.9 69.5" transform="rotate(180 50 50)"></path>
+      <path d="M77.9 30.5 A34 34 0 0 1 77.9 69.5" transform="rotate(270 50 50)"></path>
+    </g>
+    <g stroke-width="7" opacity="0.5">
+      <path d="M65.4 42.8 A17 17 0 0 1 65.4 57.2" transform="rotate(45 50 50)"></path>
+      <path d="M65.4 42.8 A17 17 0 0 1 65.4 57.2" transform="rotate(135 50 50)"></path>
+      <path d="M65.4 42.8 A17 17 0 0 1 65.4 57.2" transform="rotate(225 50 50)"></path>
+      <path d="M65.4 42.8 A17 17 0 0 1 65.4 57.2" transform="rotate(315 50 50)"></path>
+    </g>
+  </g>
+  <text x="99" y="50" dominant-baseline="central" font-family="Manrope, &#39;Manrope ExtraBold&#39;, system-ui, sans-serif" font-weight="800" font-size="52" letter-spacing="-1" fill="#f2f3f5">Flux</text>
+</svg>

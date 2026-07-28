@@ -1,0 +1,44 @@
+[Unit]
+Description=Flux privileged port helper
+Documentation=https://github.com/zagdrath/flux
+Before=fluxd.service
+
+[Service]
+Type=exec
+# This is the only Flux component that runs as root. It exists precisely so that
+# fluxd does not have to: see docs/ARCHITECTURE.md §1.
+User=root
+ExecStart=/usr/bin/flux-portd
+Environment=FLUX_PORTD_CONFIG=/etc/flux/portd.yaml
+Environment=FLUX_PORTD_SOCKET=/run/flux/portd.sock
+Restart=on-failure
+RestartSec=5s
+
+# The socket lives in a directory systemd creates and owns, group-readable by
+# `flux` so the unprivileged daemon can connect and nothing else can.
+RuntimeDirectory=flux
+RuntimeDirectoryMode=0750
+Group=flux
+StateDirectory=flux
+
+# --- Hardening ------------------------------------------------------------
+# Root is required, but almost none of root's capabilities are. The helper needs
+# to write sysfs and exec dpdk-devbind.py; that is all.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+ProtectHome=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+# Deliberately NOT set: ProtectKernelTunables and ProtectSystem=strict. Both
+# make /sys read-only, which is exactly what this service exists to write.
+
+[Install]
+WantedBy=multi-user.target

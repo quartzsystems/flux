@@ -1,0 +1,813 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   Quartz Systems design tokens.
+
+   Copied verbatim from quartzsystems/design-system → colors_and_type.css, the
+   same block Quartz Command carries. Do not fork these values here — if a token
+   needs to change it changes upstream and every app inherits it.
+   =========================================================================== */
+
+:root {
+  /* ---------- Brand ---------- */
+  --qz-green-50:  #e6fff4;
+  --qz-green-100: #b3ffde;
+  --qz-green-200: #80ffc8;
+  --qz-green-300: #4dffb2;
+  --qz-green-400: #1aff9c;
+  --qz-green-500: #00d992;   /* primary accent */
+  --qz-green-600: #00b07a;
+  --qz-green-700: #008760;
+  --qz-green-800: #005e44;
+  --qz-green-900: #003528;
+
+  /* ---------- Neutrals (dark-first) ---------- */
+  --qz-ink-0:   #0b0d12;    /* deepest / app shell edge (topbar, sidebar) */
+  --qz-ink-1:   #0f1117;    /* background (page) */
+  --qz-ink-2:   #161920;    /* surface (card) */
+  --qz-ink-3:   #1a1d26;    /* input / inset */
+  --qz-ink-4:   #1d2029;    /* surface raised */
+  --qz-ink-5:   #252830;    /* border default */
+  --qz-ink-6:   #2f323c;    /* border strong */
+  --qz-ink-7:   #41454f;    /* divider over color */
+  --qz-ink-8:   #6b6f7a;    /* muted text */
+  --qz-ink-9:   #a2a6b0;    /* secondary text */
+  --qz-ink-10:  #d7d9de;    /* primary body text */
+  --qz-ink-11:  #f2f3f5;    /* high-contrast text */
+
+  /* ---------- Semantic — surfaces ---------- */
+  --qz-bg:               var(--qz-ink-1);
+  --qz-bg-elevated:      var(--qz-ink-2);
+  --qz-surface:          var(--qz-ink-2);
+  --qz-surface-raised:   var(--qz-ink-4);
+  --qz-surface-sunken:   var(--qz-ink-0);
+  --qz-input-bg:         var(--qz-ink-3);
+
+  /* ---------- Semantic — borders ---------- */
+  --qz-border:           var(--qz-ink-5);
+  --qz-border-strong:    var(--qz-ink-6);
+  --qz-border-subtle:    #1f222b;
+  --qz-divider:          #1c1f28;
+
+  /* ---------- Semantic — text ---------- */
+  --qz-fg:               var(--qz-ink-11);
+  --qz-fg-1:             var(--qz-ink-11);
+  --qz-fg-2:             var(--qz-ink-10);
+  --qz-fg-3:             var(--qz-ink-9);
+  --qz-fg-4:             var(--qz-ink-8);
+  --qz-fg-on-accent:     #062014;            /* dark text on green */
+  --qz-fg-on-danger:     #ffffff;
+
+  /* ---------- Semantic — interaction ---------- */
+  --qz-accent:           var(--qz-green-500);
+  --qz-accent-hover:     var(--qz-green-400);
+  --qz-accent-press:     var(--qz-green-600);
+  --qz-accent-soft:      color-mix(in oklab, var(--qz-green-500) 14%, transparent);
+  --qz-accent-border:    color-mix(in oklab, var(--qz-green-500) 38%, transparent);
+  --qz-focus-ring:       0 0 0 2px var(--qz-bg), 0 0 0 4px var(--qz-green-500);
+
+  /* ---------- Status ---------- */
+  --qz-success: #00d992;
+  --qz-warn:    #f5b243;
+  --qz-danger:  #ff5d6c;
+  --qz-info:    #4fb3ff;
+  --qz-success-soft: color-mix(in oklab, var(--qz-success) 16%, transparent);
+  --qz-warn-soft:    color-mix(in oklab, var(--qz-warn) 16%, transparent);
+  --qz-danger-soft:  color-mix(in oklab, var(--qz-danger) 16%, transparent);
+  --qz-info-soft:    color-mix(in oklab, var(--qz-info) 16%, transparent);
+
+  /* ---------- Type ---------- */
+  --qz-font-sans:    "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --qz-font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --qz-font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+
+  /* ---------- Shadows / elevation ---------- */
+  --qz-shadow-1: 0 1px 0 0 rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --qz-shadow-2: 0 4px 12px rgba(0,0,0,0.35), 0 1px 2px rgba(0,0,0,0.45);
+  --qz-shadow-3: 0 12px 28px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.5);
+  --qz-shadow-glow: 0 0 0 1px var(--qz-accent-border), 0 6px 28px color-mix(in oklab, var(--qz-green-500) 22%, transparent);
+  --qz-inset-line: inset 0 1px 0 rgba(255,255,255,0.04);
+
+  /* ---------- Motion ---------- */
+  --qz-ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);
+  --qz-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --qz-ease-snap:   cubic-bezier(0.2, 0.9, 0.2, 1);
+  --qz-dur-1: 120ms;
+  --qz-dur-2: 180ms;
+  --qz-dur-3: 260ms;
+}
+
+@theme inline {
+  --color-background: var(--qz-bg);
+  --color-foreground: var(--qz-fg-2);
+  --font-sans: var(--qz-font-sans);
+  --font-mono: var(--qz-font-mono);
+}
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--qz-bg);
+  color: var(--qz-fg-2);
+  font-family: var(--qz-font-sans);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus is never removed, only replaced — this is an engineering tool and it
+   has to be drivable from the keyboard. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--qz-focus-ring);
+  border-radius: 4px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: var(--qz-accent-soft);
+  color: var(--qz-fg-1);
+}
+
+/* Scrollbars styled to sit inside the dark shell rather than punching a
+   light-grey hole through it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qz-ink-6) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--qz-ink-6);
+  border-radius: 999px;
+  border: 2px solid var(--qz-bg);
+}
+
+/* ===========================================================================
+   App shell
+   =========================================================================== */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  grid-template-rows: 56px 1fr;
+  grid-template-areas:
+    "sidebar topbar"
+    "sidebar main";
+  min-height: 100vh;
+}
+
+.app-shell[data-collapsed="true"] {
+  grid-template-columns: 64px 1fr;
+}
+
+.app-sidebar {
+  grid-area: sidebar;
+  background: var(--qz-ink-0);
+  border-right: 1px solid var(--qz-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-topbar {
+  grid-area: topbar;
+  background: var(--qz-ink-0);
+  border-bottom: 1px solid var(--qz-border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.app-main {
+  grid-area: main;
+  background: var(--qz-bg);
+  overflow-y: auto;
+}
+
+.page {
+  padding: 28px 36px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar-header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--qz-border);
+  flex-shrink: 0;
+}
+
+.sidebar-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 10px 20px;
+}
+
+.sidebar-section {
+  font-family: var(--qz-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--qz-fg-4);
+  padding: 14px 10px 6px;
+}
+
+.sidebar-section:first-child {
+  padding-top: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--qz-fg-3);
+  border: 1px solid transparent;
+  transition: background var(--qz-dur-1) var(--qz-ease-out),
+              color var(--qz-dur-1) var(--qz-ease-out);
+}
+
+.nav-item:hover {
+  background: color-mix(in oklab, #ffffff 4%, transparent);
+  color: var(--qz-fg-1);
+}
+
+.nav-item[aria-current="page"] {
+  background: var(--qz-accent-soft);
+  border-color: color-mix(in oklab, var(--qz-green-500) 30%, transparent);
+  color: var(--qz-accent);
+}
+
+.nav-item svg {
+  flex-shrink: 0;
+}
+
+.sidebar-footer {
+  border-top: 1px solid var(--qz-border);
+  padding: 12px 14px;
+  font-family: var(--qz-font-mono);
+  font-size: 10.5px;
+  color: var(--qz-fg-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ===========================================================================
+   Page header
+   =========================================================================== */
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--qz-fg-1);
+}
+
+.page-header .subtitle {
+  margin: 4px 0 0;
+  font-family: var(--qz-font-mono);
+  font-size: 13px;
+  color: var(--qz-fg-3);
+}
+
+.page-header .actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ===========================================================================
+   Surfaces
+   =========================================================================== */
+
+.surface {
+  background: var(--qz-surface);
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  box-shadow: var(--qz-inset-line);
+}
+
+.surface-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--qz-divider);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.surface-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--qz-fg-1);
+}
+
+.surface-body {
+  padding: 16px 18px;
+}
+
+/* ---------- KPI cards ---------- */
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.kpi {
+  background: var(--qz-surface);
+  border: 1px solid var(--qz-border);
+  border-radius: 10px;
+  box-shadow: var(--qz-inset-line);
+  padding: 16px 18px;
+}
+
+.kpi-label {
+  font-family: var(--qz-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--qz-fg-4);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kpi-value {
+  font-family: var(--qz-font-mono);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--qz-fg-1);
+  margin-top: 8px;
+  /* Counters change every second; proportional digits would make the whole
+     row twitch sideways on every update. */
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-unit {
+  font-size: 14px;
+  color: var(--qz-fg-3);
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+.kpi-foot {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--qz-fg-4);
+}
+
+/* ===========================================================================
+   Tables
+   =========================================================================== */
+
+.qz-table-wrap {
+  overflow-x: auto;
+}
+
+.qz-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.qz-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--qz-surface);
+  border-bottom: 1px solid var(--qz-border);
+  font-family: var(--qz-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--qz-fg-4);
+  text-align: left;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+
+.qz-table td {
+  font-size: 13px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--qz-divider);
+  color: var(--qz-fg-2);
+  vertical-align: middle;
+}
+
+.qz-table tbody tr {
+  transition: background var(--qz-dur-1) var(--qz-ease-out);
+}
+
+.qz-table tbody tr:hover {
+  background: color-mix(in oklab, #ffffff 4%, transparent);
+}
+
+.qz-table tbody tr[aria-selected="true"] {
+  background: var(--qz-accent-soft);
+}
+
+.qz-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* MACs, IPs, PCI addresses, and counters are all read by matching characters
+   against a label or a spec, so they are always monospaced. */
+.qz-table td.mono,
+.mono {
+  font-family: var(--qz-font-mono);
+  font-size: 12.5px;
+  color: var(--qz-fg-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.qz-table td.num {
+  text-align: right;
+  font-family: var(--qz-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.qz-table .empty {
+  padding: 40px 14px;
+  text-align: center;
+  color: var(--qz-fg-4);
+  font-size: 13px;
+}
+
+/* ===========================================================================
+   Badges
+   =========================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--qz-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.badge-ok {
+  background: var(--qz-success-soft);
+  border-color: color-mix(in oklab, var(--qz-success) 38%, transparent);
+  color: var(--qz-success);
+}
+
+.badge-warn {
+  background: var(--qz-warn-soft);
+  border-color: color-mix(in oklab, var(--qz-warn) 38%, transparent);
+  color: var(--qz-warn);
+}
+
+.badge-crit {
+  background: var(--qz-danger-soft);
+  border-color: color-mix(in oklab, var(--qz-danger) 38%, transparent);
+  color: var(--qz-danger);
+}
+
+.badge-info {
+  background: var(--qz-info-soft);
+  border-color: color-mix(in oklab, var(--qz-info) 38%, transparent);
+  color: var(--qz-info);
+}
+
+.badge-muted {
+  background: color-mix(in oklab, var(--qz-ink-8) 16%, transparent);
+  border-color: color-mix(in oklab, var(--qz-ink-8) 38%, transparent);
+  color: var(--qz-fg-3);
+}
+
+/* ===========================================================================
+   Buttons
+   =========================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 140ms var(--qz-ease-out),
+              border-color 140ms var(--qz-ease-out),
+              color 140ms var(--qz-ease-out),
+              opacity 140ms var(--qz-ease-out);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--qz-accent);
+  color: var(--qz-fg-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--qz-green-400);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--qz-accent-press);
+}
+
+.btn-secondary {
+  background: var(--qz-surface-raised);
+  border-color: var(--qz-border);
+  color: var(--qz-fg-2);
+  box-shadow: var(--qz-inset-line);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--qz-border-strong);
+  color: var(--qz-fg-1);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--qz-fg-3);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: color-mix(in oklab, #ffffff 5%, transparent);
+  color: var(--qz-fg-1);
+}
+
+.btn-danger {
+  background: var(--qz-danger);
+  color: var(--qz-fg-on-danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--qz-danger) 85%, #ffffff);
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.btn-icon {
+  padding: 7px;
+}
+
+/* ===========================================================================
+   Forms
+   =========================================================================== */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--qz-fg-3);
+}
+
+.input,
+.select {
+  width: 100%;
+  background: var(--qz-input-bg);
+  border: 1px solid var(--qz-border);
+  border-radius: 6px;
+  padding: 8px 11px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--qz-fg-1);
+  transition: border-color var(--qz-dur-1) var(--qz-ease-out);
+}
+
+.input::placeholder {
+  color: var(--qz-fg-4);
+}
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled) {
+  border-color: var(--qz-border-strong);
+}
+
+.input:disabled,
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--qz-danger);
+}
+
+.field-error {
+  font-size: 12px;
+  color: var(--qz-danger);
+}
+
+.select {
+  appearance: none;
+  padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--qz-fg-4) 50%),
+                    linear-gradient(135deg, var(--qz-fg-4) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+/* ===========================================================================
+   Feedback
+   =========================================================================== */
+
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+
+.alert-danger {
+  background: var(--qz-danger-soft);
+  border-color: color-mix(in oklab, var(--qz-danger) 38%, transparent);
+  color: var(--qz-fg-1);
+}
+
+.alert-warn {
+  background: var(--qz-warn-soft);
+  border-color: color-mix(in oklab, var(--qz-warn) 38%, transparent);
+  color: var(--qz-fg-1);
+}
+
+.alert-info {
+  background: var(--qz-info-soft);
+  border-color: color-mix(in oklab, var(--qz-info) 38%, transparent);
+  color: var(--qz-fg-1);
+}
+
+.alert svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* A skeleton rather than a spinner: the layout does not jump when data lands,
+   which matters on a page an operator is scanning for a specific row. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--qz-ink-3) 0%,
+    var(--qz-ink-4) 50%,
+    var(--qz-ink-3) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s var(--qz-ease-in-out) infinite;
+  border-radius: 6px;
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ---------- Link-state dot ---------- */
+
+.link-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.link-dot-up      { background: var(--qz-success); box-shadow: 0 0 8px var(--qz-success); }
+.link-dot-down    { background: var(--qz-danger); }
+.link-dot-unknown { background: var(--qz-ink-7); }
+
+/* ===========================================================================
+   Login
+   =========================================================================== */
+
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* A faint accent bloom behind the card, so the login screen reads as the same
+     product as the dark shell behind it rather than a blank page. */
+  background:
+    radial-gradient(
+      ellipse 60% 50% at 50% 0%,
+      color-mix(in oklab, var(--qz-green-500) 7%, transparent),
+      transparent 70%
+    ),
+    var(--qz-ink-1);
+}
+
+.login-box {
+  width: 100%;
+  max-width: 380px;
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 26px;
+}
+
+.login-tagline {
+  font-family: var(--qz-font-mono);
+  font-size: 12px;
+  color: var(--qz-fg-3);
+  text-align: center;
+  margin: 0;
+}
+
+/* ===========================================================================
+   Utilities
+   =========================================================================== */
+
+.stack   { display: flex; flex-direction: column; }
+.row     { display: flex; align-items: center; }
+.gap-6   { gap: 6px; }
+.gap-8   { gap: 8px; }
+.gap-10  { gap: 10px; }
+.gap-14  { gap: 14px; }
+.gap-18  { gap: 18px; }
+.muted   { color: var(--qz-fg-4); }
+.dim     { color: var(--qz-fg-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

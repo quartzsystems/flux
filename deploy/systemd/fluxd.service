@@ -1,0 +1,60 @@
+[Unit]
+Description=Flux appliance daemon
+Documentation=https://github.com/zagdrath/flux
+# Postgres must be accepting connections before migrations run, and the port
+# helper before the first inventory refresh. Neither is Requires=: fluxd logs
+# and carries on if the helper is missing, so an operator can still reach the UI
+# to see why.
+After=network-online.target postgresql.service flux-portd.service
+Wants=network-online.target postgresql.service flux-portd.service
+
+[Service]
+Type=exec
+User=flux
+Group=flux
+ExecStart=/usr/bin/fluxd
+EnvironmentFile=/etc/flux/fluxd.env
+Restart=on-failure
+RestartSec=5s
+
+# Structured output straight into the journal.
+Environment=FLUX_LOG_FORMAT=json
+
+# --- Hardening ------------------------------------------------------------
+# fluxd handles untrusted input on a network port and needs none of this. The
+# one thing it must reach outside its own tree is the port helper's socket in
+# /run/flux, which ProtectSystem=strict would otherwise make read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+# Writable paths: TRex configs and any state fluxd keeps.
+StateDirectory=flux
+RuntimeDirectory=flux
+ReadWritePaths=/var/lib/flux /run/flux
+
+# TRex instances are spawned from here and are memory-hungry by design; the
+# default file descriptor ceiling is too low for a multi-port group.
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

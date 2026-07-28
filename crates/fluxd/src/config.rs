@@ -73,9 +73,15 @@ impl Config {
             .parse::<SocketAddr>()
             .context("FLUX_BIND must be an address like 0.0.0.0:8080")?;
 
-        let database_url = std::env::var("DATABASE_URL").context(
-            "DATABASE_URL is required, e.g. postgres://flux:flux@localhost/flux",
-        )?;
+        // Empty counts as unset here for the same reason it does everywhere else:
+        // `DATABASE_URL=` in an EnvironmentFile means "not configured", and
+        // carrying it through would produce a connection error about an empty
+        // host rather than saying the variable is missing.
+        let database_url = std::env::var("DATABASE_URL")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| v.trim().to_string())
+            .context("DATABASE_URL is required, e.g. postgres://flux:flux@localhost/flux")?;
 
         let database_max_connections = env_or("FLUX_DB_MAX_CONNECTIONS", "16")
             .parse()
