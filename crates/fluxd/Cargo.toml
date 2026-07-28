@@ -1,0 +1,54 @@
+[package]
+name = "fluxd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The Flux appliance daemon: REST + WebSocket API, orchestrator, engine supervisor"
+
+[dependencies]
+flux-core.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+axum = { version = "0.8", features = ["ws", "macros", "multipart"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = [
+  "fs",
+  "trace",
+  "compression-gzip",
+  "set-header",
+  "catch-panic",
+] }
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio",
+  "postgres",
+  "uuid",
+  "time",
+  "json",
+  "migrate",
+  "macros",
+] }
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+utoipa = { version = "5", features = ["axum_extras", "uuid", "time"] }
+sysinfo = "0.33"
+mime_guess = "2"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

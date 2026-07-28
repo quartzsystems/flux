@@ -1,0 +1,22 @@
+[package]
+name = "flux-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shared domain types and service traits for the Flux traffic generator appliance"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+utoipa = { version = "5", features = ["uuid", "time"] }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -1,0 +1,166 @@
+//! `fluxd` — the Flux appliance daemon.
+//!
+//! One process serves the REST API, the WebSocket stream, and the static UI;
+//! supervises the packet engines; and owns the test orchestrator. It runs
+//! unprivileged, delegating the two things that need root — NIC binding and
+//! hugepage allocation — to `flux-portd` over a unix socket.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Context;
+use flux_core::port::PortController;
+
+mod api;
+mod auth;
+mod bootstrap;
+mod config;
+mod portmgr;
+mod state;
+mod store;
+
+use config::{Config, PortdBackend};
+use portmgr::{MockPortController, PortManager, UnixPortdClient};
+use state::AppState;
+use store::Store;
+
+/// How often expired sessions and lapsed reservations are swept away.
+const JANITOR_INTERVAL: Duration = Duration::from_secs(600);
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    init_tracing();
+
+    let config = Arc::new(Config::from_env().context("reading configuration")?);
+    tracing::info!(
+        version = api::system::VERSION,
+        bind = %config.bind,
+        engine = ?config.engine,
+        portd = ?config.portd,
+        web_root = %config.web_root.display(),
+        "fluxd starting"
+    );
+    if config.is_fully_mocked() {
+        tracing::warn!(
+            "running fully mocked: no hardware is driven and all traffic statistics are simulated"
+        );
+    }
+
+    let store = Store::connect(&config.database_url, config.database_max_connections).await?;
+    store.migrate().await?;
+    bootstrap::ensure_admin_account(&store, &config).await?;
+
+    let controller: Arc<dyn PortController> = match config.portd {
+        PortdBackend::Mock => Arc::new(MockPortController::new()),
+        PortdBackend::Unix => Arc::new(UnixPortdClient::new(&config.portd_socket)),
+    };
+    let ports = PortManager::new(controller, store.clone());
+
+    // A refresh failure at startup is not fatal. The helper may still be coming
+    // up under systemd, and an appliance that refuses to serve its own UI because
+    // it cannot see a NIC gives an operator no way to diagnose that.
+    if let Err(err) = ports.refresh_inventory().await {
+        tracing::warn!(%err, "could not read the port inventory at startup");
+    }
+
+    let state = AppState::new(store.clone(), ports, Arc::clone(&config));
+    tokio::spawn(janitor(store));
+
+    let listener = tokio::net::TcpListener::bind(config.bind)
+        .await
+        .with_context(|| format!("binding {}", config.bind))?;
+    tracing::info!(address = %listener.local_addr()?, "listening");
+
+    axum::serve(listener, api::router(state))
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .context("running the HTTP server")?;
+
+    tracing::info!("fluxd stopped");
+    Ok(())
+}
+
+/// Configures structured logging.
+///
+/// Defaults to JSON when not attached to a terminal, which is how the daemon runs
+/// under systemd, and to human-readable output otherwise.
+fn init_tracing() {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::EnvFilter;
+
+    let filter = EnvFilter::try_from_env("FLUX_LOG")
+        .unwrap_or_else(|_| EnvFilter::new("info,fluxd=debug,tower_http=info"));
+
+    let json = std::env::var("FLUX_LOG_FORMAT").as_deref() == Ok("json");
+
+    let registry = tracing_subscriber::registry().with(filter);
+    if json {
+        registry.with(tracing_subscriber::fmt::layer().json()).init();
+    } else {
+        registry.with(tracing_subscriber::fmt::layer().with_target(false)).init();
+    }
+}
+
+/// Periodically removes rows that have simply timed out.
+///
+/// Expiry is enforced in every query, so this is housekeeping rather than a
+/// correctness requirement — which is why a failure logs and retries on the next
+/// tick instead of taking the daemon down.
+async fn janitor(store: Store) {
+    let mut ticker = tokio::time::interval(JANITOR_INTERVAL);
+    // The first tick fires immediately; skip it so startup is not competing with
+    // migrations and the first inventory refresh for connections.
+    ticker.tick().await;
+
+    loop {
+        ticker.tick().await;
+
+        match store::sessions::purge_expired(store.pool()).await {
+            Ok(n) if n > 0 => tracing::info!(count = n, "purged expired sessions"),
+            Ok(_) => {}
+            Err(err) => tracing::warn!(%err, "could not purge expired sessions"),
+        }
+
+        match store::reservations::purge_expired(store.pool()).await {
+            Ok(n) if n > 0 => tracing::info!(count = n, "released lapsed port reservations"),
+            Ok(_) => {}
+            Err(err) => tracing::warn!(%err, "could not purge lapsed reservations"),
+        }
+    }
+}
+
+/// Resolves when the process is asked to stop.
+///
+/// systemd sends `SIGTERM`; an operator at a console sends `SIGINT`. Both need to
+/// drain in-flight requests rather than cutting them off.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            tracing::error!(%err, "could not listen for SIGINT");
+            // Never resolve, rather than shutting down on a listener failure.
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(err) => {
+                tracing::error!(%err, "could not listen for SIGTERM");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => tracing::info!("received SIGINT, shutting down"),
+        () = terminate => tracing::info!("received SIGTERM, shutting down"),
+    }
+}

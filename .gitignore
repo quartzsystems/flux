@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Node / Next.js
+web/node_modules
+web/.next
+web/out
+web/.turbo
+web/next-env.d.ts
+npm-debug.log*
+yarn-error.log*
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local runtime state
+/run
+/var
+*.log
