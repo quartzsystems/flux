@@ -15,22 +15,23 @@ controller and no external management plane.
 
 ## Status
 
-**Milestone 2 of 4 — flows, engines, and live statistics.**
+**Milestone 3 of 4 — RFC 2544 benchmarking and reports.**
 
 | | |
 |---|---|
 | ✅ **Milestone 1** | Workspace, API, login and sessions, user administration, migrations, port inventory with driver binding and reservations, dashboard and ports pages, `flux-portd` privileged helper |
 | ✅ **Milestone 2** | Flow documents with a full editor, frame builder and hex preview, rate maths, `Engine` with mock and TRex implementations, statistics collector, WebSocket stream, manual test type, run history and the live run view |
-| 🚧 **Milestone 3** | RFC 2544 throughput / latency / frame-loss / back-to-back, reports, pcap import |
+| ✅ **Milestone 3** | All four RFC 2544 benchmarks with the search as a pure, exhaustively tested function; per-benchmark wizards; printable self-contained reports; pcap import |
 | 🚧 **Milestone 4** | Stateful L4-7 profiles, analytics, TLS and settings, deployment polish |
 
 Routes for later milestones are already in the navigation and each says which
 milestone delivers it, so the shape of the product is visible from the first
 screen.
 
-Two things are not yet verified against reality, and are called out in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#known-gaps): `TrexEngine` has never
-talked to a live TRex, and no run has been recorded against a real Postgres.
+The API, the orchestrator, and the UI are verified end to end against a real
+Postgres. One thing is not verified against reality and is called out under
+[known gaps](docs/ARCHITECTURE.md#known-gaps): `TrexEngine` has never talked to
+a live TRex, which needs DPDK-capable hardware.
 
 ## Architecture at a glance
 
@@ -110,8 +111,12 @@ so a complete run works end to end without hardware:
 2. **Flows** — create a flow between them. The editor previews the exact frame
    the engine will transmit, byte for byte.
 3. **Tests** — create a manual test naming that flow, and press run.
-4. **Runs** — watch the live charts. A 60-second flow really does take 60
-   seconds; set `FLUX_MOCK_TIMESCALE=10` to speed the clock up in tests.
+4. **Tests** — or create an RFC 2544 benchmark. The wizard opens with the seven
+   standard frame sizes and a sixty-second trial, and warns before the run if
+   anything you change would make the result non-conformant.
+5. **Runs** — watch the live charts, then open the report and print it. A
+   60-second trial really does take 60 seconds; set `FLUX_MOCK_TIMESCALE=60` to
+   speed the clock up while developing.
 
 To see what loss looks like on the charts, inject some while a run is in flight:
 

@@ -12,11 +12,12 @@
 import {
   IconAlertTriangle,
   IconDeviceFloppy,
+  IconFileImport,
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
 import { HeaderStack } from '@/components/HeaderStack';
@@ -361,7 +362,15 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
         </div>
       </Surface>
 
-      <Surface title="Header stack">
+      <Surface
+        title="Header stack"
+        actions={
+          <PcapImport
+            onImported={(headers) => set('headers', headers)}
+            onError={setBanner}
+          />
+        }
+      >
         <HeaderStack
           headers={config.headers}
           onChange={(headers) => set('headers', headers)}
@@ -814,5 +823,72 @@ function HexPreview({ preview }: { preview: FlowPreview }) {
         on the wire.
       </p>
     </Surface>
+  );
+}
+
+/**
+ * Replaces the header stack from a captured packet.
+ *
+ * The import lands in the editor rather than saving a flow: the operator still
+ * has to pick ports and a rate, and will usually want to adjust an address.
+ * Anything the decoder approximated or dropped is reported rather than left for
+ * them to notice in a capture later.
+ */
+function PcapImport({
+  onImported,
+  onError,
+}: {
+  onImported: (headers: FlowConfig['headers']) => void;
+  onError: (message: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [notes, setNotes] = useState<string[]>([]);
+
+  const load = useMutation({
+    mutationFn: (file: File) => api.flows.importPcap(file),
+    onSuccess: (result) => {
+      onImported(result.headers);
+      setNotes(result.notes);
+      onError('');
+    },
+    onError: (e: unknown) => {
+      setNotes([]);
+      onError(e instanceof ApiError ? e.fieldErrors[0]?.msg ?? e.message : 'The import failed.');
+    },
+  });
+
+  return (
+    <div className="stack" style={{ alignItems: 'flex-end', gap: 4 }}>
+      <input
+        ref={input}
+        type="file"
+        accept=".pcap,.cap,application/vnd.tcpdump.pcap"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) load.mutate(file);
+          // Clear the value so selecting the same file twice fires again.
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={load.isPending}
+        title="Read the header stack from the first packet of a capture"
+        onClick={() => input.current?.click()}
+      >
+        <IconFileImport size={14} stroke={1.8} />
+        {load.isPending ? 'Reading…' : 'Import from pcap'}
+      </button>
+
+      {notes.length > 0 ? (
+        <ul className="import-notes">
+          {notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

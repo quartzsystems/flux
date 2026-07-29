@@ -83,7 +83,7 @@ src/
 └── store/          sqlx repositories and migrations
 ```
 
-Milestone 3 extends `orch/` with the RFC 2544 state machine.
+Milestone 4 extends `engine/` with the stateful (ASTF) mode.
 
 ---
 
@@ -275,6 +275,56 @@ information the operator can still use.
 
 ---
 
+## 2e. RFC 2544
+
+The benchmark is split in two, and the split is the point.
+
+`orch::rfc2544` is **pure**. Given the configuration and the trials run so far,
+it returns the next action. It touches no engine, no clock, and no database, so
+it is table-tested exhaustively - convergence against a simulated device,
+all-pass, all-fail, boundary tolerance, iteration cutoff, never repeating a
+rate, terminating at an absurdly fine resolution - in milliseconds rather than
+by running hour-long tests against hardware.
+
+`orch::statemachine` is the async half: reprogram per frame size, move the
+multiplier per trial, record every one, publish progress. A bug in "which rate
+next" is caught by a table test; a bug here shows up as a run that does not
+progress, which is far more visible.
+
+### Why a fold over the whole history
+
+The search takes the complete trial list rather than carrying mutable state.
+That makes it replayable: the orchestrator can reconstruct exactly where a
+search was from the `run_results` rows alone, which is what a resumable run
+needs and what makes a stored result auditable after the fact.
+
+### The four tests
+
+| | Section | Searches | At |
+|---|---|---|---|
+| Throughput | 26.1 | rate, binary | the configured tolerance |
+| Latency | 26.2 | rate, then one timestamped trial | the rate the search found |
+| Frame loss | 26.3 | a descending ladder | each rung |
+| Back-to-back | 26.4 | burst length, binary | zero loss, full line rate |
+
+Latency measures *at* the throughput rate, which is not known until the search
+finishes - so that trial runs after convergence rather than alongside it.
+
+### Conformance is stated, not assumed
+
+A trial shorter than sixty seconds, a non-zero loss tolerance, or an omitted
+standard frame size each make a run non-conformant. Flux still runs it - those
+are useful while iterating - but says so in the wizard *before* the run and at
+the top of the report *after* it. A report that quietly presented a ten-second
+trial as an RFC 2544 throughput figure would mislead whoever reads it later,
+and they have no other way to know.
+
+`StopReason` is recorded with every result, because "converged at 87.5%" and
+"gave up at 87.5% after twenty trials" are different claims and only one of them
+is a measurement.
+
+---
+
 ## 5. HTTP surface
 
 One `Router` serves both `/api/v1` and the exported UI at `/`.
@@ -370,8 +420,21 @@ document matches. A path that already resolves to a real file is never
 rewritten, so `/runs/` still serves the history table. The client reads the
 actual id from `window.location`.
 
-The alternative — `/runs/detail?id=…` — needs no server-side mapping but gives
-up readable, linkable URLs. The mapping is about twenty lines and six tests.
+Nested routes resolve before their parents, so `/runs/<id>/report/` finds the
+report rather than the run view. The alternative - `/runs/detail?id=...` - needs
+no server-side mapping but gives up readable, linkable URLs.
+
+### Reports
+
+`GET /api/v1/runs/{id}/report` renders one self-contained HTML document: no
+scripts, no external assets, nothing to fetch. A report is archived, emailed,
+and printed months later, so a page that needs the appliance still running to
+render itself is not a record.
+
+The UI route `/runs/<id>/report` frames that document in an iframe and prints
+the frame rather than the page, so `window.print()` produces the document with
+its own print stylesheet and none of the application shell. Duplicating the
+layout in React would give two renderings that drift apart.
 
 Cache policy is split: content-hashed output under `/_next/static` is
 `immutable`, everything else is `no-store`. Without that split, an upgraded
@@ -505,8 +568,10 @@ not survive the restart, so failing them is the honest default.
 | `flux-core` | Pure unit tests: enum round-trips, `PciAddr` rejection cases, validation paths |
 | `flux-portd` | Allowlist enforcement, refusal before any hardware call |
 | `fluxd` | Error mapping, role checks, validation rules, mock controller behaviour |
-| RFC 2544 search | *(Milestone 3.)* The search is a pure `(trial_results) -> next_action` function, separated from the async execution loop, exhaustively table-tested: convergence, all-pass, all-fail, boundary tolerance, max-iteration cutoff |
-| State machine | *(Milestone 3.)* Driven against `MockEngine` with injected loss |
+| RFC 2544 search | A pure `(config, trials) -> action` function, exhaustively table-tested: convergence against a simulated device, all-pass, all-fail, boundary tolerance, iteration cutoff, no repeated rates, termination at any resolution |
+| State machine | Driven end to end against `MockEngine` with injected loss, against a live Postgres |
+| Report | Rendered and asserted on: no scripts, no external references, operator text escaped, caveats present |
+| pcap import | Decoded stacks, truncation notes, dropped options, and a fuzz pass that truncates and corrupts a valid capture at every offset |
 
 The quality bar: `cargo clippy --workspace --all-targets -- -D warnings` clean,
 no `unwrap`/`expect` on request or engine control paths, and a tracing span with
@@ -532,14 +597,16 @@ no `unwrap`/`expect` on request or engine control paths, and a tracing span with
 |---|---|
 | **1** | Workspace, API, auth and sessions, users, migrations, port model with `flux-portd`, dashboard and ports pages |
 | **2** | Flow documents, frame builder, rate maths, `Engine` with both implementations, translator, collector, WebSocket stream, manual test type, run lifecycle, flow editor, tests page, run history, live run view |
-| **3** | RFC 2544 throughput / latency / frame-loss / back-to-back, the search as a pure function, reports, pcap import, reservations UI |
+| **3** | All four RFC 2544 benchmarks with the search as a pure function, the benchmark state machine, wizards, printable reports, pcap import |
 | **4** | ASTF and L4-7 profiles, analytics, TLS and settings, config export/import, port-group relaunch, deployment polish |
 
 ### Known gaps
 
 - **`TrexEngine` is unverified against a live TRex.** Structured, unit-tested,
   and marked; running it needs DPDK-capable hardware.
-- **The database has not been exercised end to end.** The schema, migrations,
-  and repositories are written and the daemon fails cleanly without them, but
-  no run has been recorded against a real Postgres in this environment. See
-  the README for the one command that provisions it.
+- **`MockEngine` does not model a device under test.** Received counters are
+  transmitted counters minus injected loss, so a mock run measures the mock. It
+  exercises the pipeline end to end; it does not predict a result. The injected
+  loss is flat across rates, so a mock RFC 2544 search either passes at the
+  ceiling or fails everywhere - the search's behaviour against a device with a
+  real throughput ceiling is covered by the table tests instead.

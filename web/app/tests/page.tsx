@@ -3,25 +3,37 @@
 /**
  * The tests page.
  *
- * Milestone 2 delivers the manual test type: pick flows, press run, watch them.
- * The RFC 2544 wizards land in milestone 3, and the type selector says so rather
- * than offering choices that would be rejected.
+ * Two shapes of test live here. A manual test names flows and runs them until
+ * stopped; an RFC 2544 benchmark owns the frame size and the rate and searches
+ * for an answer. They share a list, and the wizard differs per benchmark.
  */
 
-import { IconAlertTriangle, IconPlayerPlay, IconPlus, IconTrash } from '@tabler/icons-react';
+import {
+  IconAlertTriangle,
+  IconChevronDown,
+  IconPlayerPlay,
+  IconTrash,
+} from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
+import { BENCHMARKS, Rfc2544Wizard } from '@/components/Rfc2544Wizard';
 import { Alert, Badge, EmptyRow, PageHeader, Surface, TableSkeleton } from '@/components/ui';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import type { Flow, Test, TestType } from '@/lib/api-types';
 import { useAuth } from '@/lib/auth';
 import { formatTimestamp } from '@/lib/format';
 
-/** Which test types can actually run today. */
-const RUNNABLE: TestType[] = ['manual'];
+/** Every test type can now be run. */
+const RUNNABLE: TestType[] = [
+  'manual',
+  'rfc2544_throughput',
+  'rfc2544_latency',
+  'rfc2544_frameloss',
+  'rfc2544_b2b',
+];
 
 /** Display names for each type. */
 const TYPE_LABELS: Record<TestType, string> = {
@@ -45,7 +57,7 @@ function Tests() {
   const queryClient = useQueryClient();
   const { can } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<TestType | null>(null);
 
   const tests = useQuery({
     queryKey: queryKeys.tests,
@@ -81,23 +93,33 @@ function Tests() {
         title="Tests"
         subtitle={tests.data ? `${rows.length} defined` : 'Test definitions'}
         actions={
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={!can('operator') || (flows.data ?? []).length === 0}
-            title={
-              (flows.data ?? []).length === 0
-                ? 'Define a flow first'
-                : 'Create a test'
-            }
-            onClick={() => {
-              setError(null);
-              setCreating((v) => !v);
-            }}
-          >
-            <IconPlus size={15} stroke={2} />
-            {creating ? 'Cancel' : 'New test'}
-          </button>
+          creating ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setError(null);
+                setCreating(null);
+              }}
+            >
+              Cancel
+            </button>
+          ) : (
+            <TypePicker
+              disabled={!can('operator') || (flows.data ?? []).length === 0}
+              reason={
+                (flows.data ?? []).length === 0
+                  ? 'Define a flow first'
+                  : !can('operator')
+                    ? 'Creating tests requires an operator account'
+                    : undefined
+              }
+              onPick={(type) => {
+                setError(null);
+                setCreating(type);
+              }}
+            />
+          )
         }
       />
 
@@ -108,11 +130,23 @@ function Tests() {
         </Alert>
       ) : null}
 
-      {creating ? (
+      {creating === 'manual' ? (
         <CreateTest
           flows={flows.data ?? []}
           onDone={() => {
-            setCreating(false);
+            setCreating(null);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
+          }}
+          onError={setError}
+        />
+      ) : null}
+
+      {creating && creating !== 'manual' ? (
+        <CreateBenchmark
+          type={creating}
+          flows={flows.data ?? []}
+          onDone={() => {
+            setCreating(null);
             void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
           }}
           onError={setError}
@@ -208,7 +242,7 @@ function TestRow({
             disabled={!canRun || busy || !runnable}
             title={
               !runnable
-                ? 'This test type arrives in milestone 3'
+                ? 'This test type cannot be run by this build'
                 : canRun
                   ? 'Start a run'
                   : 'Running requires an operator account'
@@ -353,4 +387,121 @@ function describe(error: unknown): string {
     return error.message;
   }
   return 'The request failed.';
+}
+
+/** The "new test" split button: manual, or one of the four benchmarks. */
+function TypePicker({
+  disabled,
+  reason,
+  onPick,
+}: {
+  disabled: boolean;
+  reason?: string;
+  onPick: (type: TestType) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        disabled={disabled}
+        title={reason ?? 'Create a test'}
+        onClick={() => setOpen((v) => !v)}
+      >
+        New test
+        <IconChevronDown size={14} stroke={2} />
+      </button>
+
+      {open && !disabled ? (
+        <>
+          {/* Clicking anywhere else closes the menu without selecting. */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+            onClick={() => setOpen(false)}
+            aria-hidden
+          />
+          <div className="menu">
+            <button
+              type="button"
+              className="menu-item"
+              onClick={() => {
+                setOpen(false);
+                onPick('manual');
+              }}
+            >
+              <strong>Manual</strong>
+              <span>Start and stop flows as configured</span>
+            </button>
+
+            <div className="menu-heading">RFC 2544</div>
+            {BENCHMARKS.map((benchmark) => (
+              <button
+                key={benchmark.type}
+                type="button"
+                className="menu-item"
+                onClick={() => {
+                  setOpen(false);
+                  onPick(benchmark.type);
+                }}
+              >
+                <strong>
+                  {benchmark.label} <span className="muted">{benchmark.section}</span>
+                </strong>
+                <span>{benchmark.describes}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/** Wraps the wizard in a surface and submits it. */
+function CreateBenchmark({
+  type,
+  flows,
+  onDone,
+  onError,
+}: {
+  type: TestType;
+  flows: Flow[];
+  onDone: () => void;
+  onError: (message: string) => void;
+}) {
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const create = useMutation({
+    mutationFn: (input: {
+      name: string;
+      type: TestType;
+      config: Record<string, unknown>;
+      flowIds: string[];
+    }) => api.tests.create(input),
+    onSuccess: () => {
+      setFieldErrors({});
+      onDone();
+    },
+    onError: (e: unknown) => {
+      if (e instanceof ApiError && e.fieldErrors.length > 0) {
+        setFieldErrors(Object.fromEntries(e.fieldErrors.map((f) => [f.path, f.msg])));
+      } else {
+        onError(describe(e));
+      }
+    },
+  });
+
+  return (
+    <Surface title={`New ${BENCHMARKS.find((b) => b.type === type)?.label ?? 'benchmark'} test`}>
+      <Rfc2544Wizard
+        type={type}
+        flows={flows}
+        busy={create.isPending}
+        errors={fieldErrors}
+        onSubmit={(input) => create.mutate(input)}
+      />
+    </Surface>
+  );
 }

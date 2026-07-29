@@ -474,6 +474,76 @@ export interface TestInput {
   flowIds: string[];
 }
 
+/** The frame sizes RFC 2544 section 9 names for Ethernet. */
+export const STANDARD_FRAME_SIZES = [64, 128, 256, 512, 1024, 1280, 1518] as const;
+
+/** Trial duration RFC 2544 section 24 requires for a reportable result. */
+export const REPORTABLE_TRIAL_SECONDS = 60;
+
+/**
+ * `flux_core::rfc2544::Rfc2544Config`
+ *
+ * Defaults mirror the Rust `Default` impl. They are duplicated so a wizard can
+ * open populated without a round trip; the Rust side stays authoritative and
+ * validates anything saved.
+ */
+export const rfc2544ConfigSchema = z.object({
+  frameSizes: z.array(z.number()).default([...STANDARD_FRAME_SIZES]),
+  trialSeconds: z.number().default(REPORTABLE_TRIAL_SECONDS),
+  lossTolerancePct: z.number().default(0),
+  maxIterations: z.number().default(20),
+  initialRatePct: z.number().default(100),
+  resolutionPct: z.number().default(0.1),
+  ladderStepPct: z.number().default(10),
+  minRatePct: z.number().default(10),
+  maxBurstFrames: z.number().default(1_000_000),
+  burstResolutionFrames: z.number().default(100),
+});
+export type Rfc2544Config = z.infer<typeof rfc2544ConfigSchema>;
+
+/** A fresh benchmark configuration with the standard frame sizes. */
+export function defaultRfc2544Config(): Rfc2544Config {
+  return rfc2544ConfigSchema.parse({});
+}
+
+/**
+ * Why a configuration would not produce a conformant RFC 2544 result.
+ *
+ * Mirrors `Rfc2544Config::reportability_notes`. Shown in the wizard so an
+ * operator learns about it before spending an hour on the run rather than when
+ * they read the report.
+ */
+export function reportabilityNotes(config: Rfc2544Config): string[] {
+  const notes: string[] = [];
+
+  if (config.trialSeconds < REPORTABLE_TRIAL_SECONDS) {
+    notes.push(
+      `Trial duration is ${config.trialSeconds}s; RFC 2544 §24 requires at least ${REPORTABLE_TRIAL_SECONDS}s.`,
+    );
+  }
+  if (config.lossTolerancePct > 0) {
+    notes.push(
+      `Loss tolerance is ${config.lossTolerancePct}%; RFC 2544 throughput is defined at zero loss.`,
+    );
+  }
+
+  const missing = STANDARD_FRAME_SIZES.filter((s) => !config.frameSizes.includes(s));
+  if (missing.length > 0) {
+    notes.push(`Frame sizes ${missing.join(', ')} from RFC 2544 §9 were not selected.`);
+  }
+
+  return notes;
+}
+
+/** `fluxd::api::flows::PcapImport` */
+export const pcapImportSchema = z.object({
+  headers: z.array(headerLayerSchema),
+  capturedLen: z.number(),
+  originalLen: z.number(),
+  notes: z.array(z.string()),
+});
+export type PcapImport = z.infer<typeof pcapImportSchema>;
+
 // ---------------------------------------------------------------------------
 // Runs — fluxd::api::runs
 // ---------------------------------------------------------------------------

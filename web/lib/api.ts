@@ -14,6 +14,7 @@ import {
   flowPreviewSchema,
   flowSchema,
   healthSchema,
+  pcapImportSchema,
   hugepagesStatusSchema,
   meSchema,
   portGroupSchema,
@@ -238,6 +239,38 @@ export const api = {
         schema: flowPreviewSchema,
         signal,
       }),
+
+    /**
+     * Derives a header stack from the first packet of a capture.
+     *
+     * Sent as multipart because that is what a file input produces. The
+     * response is a stack to drop into the editor, not a saved flow — the
+     * operator still chooses ports and a rate.
+     */
+    importPcap: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+
+      const response = await fetch(`${BASE}/flows/import-pcap`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: form,
+      });
+
+      if (!response.ok) {
+        throw await toApiError(response);
+      }
+
+      const parsed = pcapImportSchema.safeParse(await response.json());
+      if (!parsed.success) {
+        throw new ApiError(
+          response.status,
+          'schema_mismatch',
+          'The appliance returned a capture in a form this interface does not understand.',
+        );
+      }
+      return parsed.data;
+    },
   },
 
   tests: {
@@ -294,6 +327,15 @@ export const api = {
 
     /** Asks an in-flight run to stop. */
     stop: (id: string) => request(`/runs/${id}/stop`, { method: 'POST' }),
+
+    /**
+     * The URL of a run's printable report.
+     *
+     * A plain link rather than a fetch: the report is a document, and letting
+     * the browser navigate to it keeps print, save, and share working the way
+     * they do for any other page.
+     */
+    reportUrl: (id: string) => `${BASE}/runs/${id}/report`,
   },
 
   debug: {

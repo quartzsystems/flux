@@ -984,6 +984,102 @@ a {
 }
 
 /* ===========================================================================
+   Menus
+   =========================================================================== */
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 320px;
+  padding: 6px;
+  background: var(--qz-surface-raised);
+  border: 1px solid var(--qz-border-strong);
+  border-radius: 10px;
+  box-shadow: var(--qz-shadow-3);
+}
+
+.menu-heading {
+  font-family: var(--qz-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--qz-fg-4);
+  padding: 10px 10px 4px;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--qz-fg-2);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--qz-dur-1) var(--qz-ease-out);
+}
+
+.menu-item:hover {
+  background: color-mix(in oklab, #ffffff 5%, transparent);
+}
+
+.menu-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qz-fg-1);
+}
+
+.menu-item span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--qz-fg-4);
+}
+
+/* ===========================================================================
+   Wizard
+   =========================================================================== */
+
+.wizard-intro {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--qz-info-soft);
+  border: 1px solid color-mix(in oklab, var(--qz-info) 30%, transparent);
+  color: var(--qz-fg-2);
+  font-size: 13px;
+}
+
+.wizard-intro strong {
+  color: var(--qz-fg-1);
+  font-size: 13.5px;
+}
+
+/* ===========================================================================
+   Report
+   =========================================================================== */
+
+/* The report renders on white inside a dark shell, so what is on screen is
+   what comes out of the printer. */
+.report-frame {
+  display: block;
+  width: 100%;
+  height: 78vh;
+  min-height: 520px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* ===========================================================================
    Utilities
    =========================================================================== */
 
@@ -1005,4 +1101,19 @@ a {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Notes from a pcap import: what the decoder approximated or dropped. */
+.import-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 380px;
+  text-align: right;
+}
+
+.import-notes li {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--qz-warn);
 }

@@ -12,7 +12,7 @@
  * when something about the run actually changed.
  */
 
-import { IconAlertTriangle, IconPlayerStop } from '@tabler/icons-react';
+import { IconAlertTriangle, IconFileText, IconPlayerStop } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -169,6 +169,10 @@ function RunViewInner() {
                 {stop.isPending ? 'Stopping…' : 'Stop run'}
               </button>
             ) : null}
+            <Link href={`/runs/${runId}/report/`} className="btn btn-secondary btn-sm">
+              <IconFileText size={14} stroke={1.8} />
+              Report
+            </Link>
             <Link href="/runs/" className="btn btn-secondary btn-sm">
               All runs
             </Link>

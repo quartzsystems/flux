@@ -115,14 +115,15 @@ function Runs() {
                 <th>Started</th>
                 <th>Duration</th>
                 <th>Detail</th>
+                <th />
               </tr>
             </thead>
             {runs.isLoading ? (
-              <TableSkeleton columns={6} rows={5} />
+              <TableSkeleton columns={7} rows={5} />
             ) : (
               <tbody>
                 {rows.length === 0 ? (
-                  <EmptyRow columns={6}>
+                  <EmptyRow columns={7}>
                     {filter ? `No ${filter} runs.` : 'No runs yet. Start one from the tests page.'}
                   </EmptyRow>
                 ) : (
@@ -182,8 +183,15 @@ function RunRow({ run }: { run: Run }) {
         {formatTimestamp(run.startedAt)}
       </td>
       <td className="mono">{formatDuration(duration)}</td>
-      <td className="dim" style={{ maxWidth: 320, fontSize: 12 }}>
+      <td className="dim" style={{ maxWidth: 280, fontSize: 12 }}>
         {run.error ?? '—'}
+      </td>
+      <td style={{ textAlign: 'right' }}>
+        {isTerminal(run.state) ? (
+          <Link href={`/runs/${run.id}/report/`} className="btn btn-ghost btn-sm">
+            Report
+          </Link>
+        ) : null}
       </td>
     </tr>
   );
