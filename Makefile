@@ -65,6 +65,19 @@ version: ## Print the version everything is built from
 version-sync: ## Write VERSION into Cargo.toml and web/package.json
 	@scripts/sync-version.sh
 
+# One command, because editing VERSION and remembering to propagate it are two,
+# and the second one is forgettable — which is how a tag once reached CI with
+# the manifests still a version behind.
+.PHONY: release
+release: ## Raise the version and propagate it (make release V=0.2.0)
+	@test -n "$(V)" || { echo "usage: make release V=0.2.0"; exit 1; }
+	@scripts/sync-version.sh --set "$(V)"
+	@echo
+	@echo "Now, in order:"
+	@echo "    git commit -am 'Release $(V)'"
+	@echo "    git push                            # let CI go green first"
+	@echo "    git tag v$(V) && git push --tags    # this publishes the release"
+
 .PHONY: version-check
 version-check: ## Fail if the manifests disagree with VERSION
 	@scripts/sync-version.sh --check

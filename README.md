@@ -103,11 +103,19 @@ into `Cargo.toml` and `web/package.json`. CI fails if they disagree.
 Cutting a release:
 
 ```bash
-echo 0.2.0 > VERSION
-make version-sync
+make release V=0.2.0          # writes VERSION and propagates it in one step
 git commit -am "Release 0.2.0"
-git tag v0.2.0 && git push --follow-tags
+git push                      # let CI go green before tagging
+git tag v0.2.0 && git push --tags
 ```
+
+Raising the version and propagating it are one command deliberately. Doing them
+separately is forgettable, and forgetting means a tag that CI rejects after you
+have already pushed it — recoverable only by moving the tag.
+
+Push the commit before tagging, too. The `version` job on `main` catches drift
+in seconds; the same check inside the release workflow catches it only once the
+tag exists.
 
 The tag triggers the release workflow, which refuses to publish if the tag and
 `VERSION` disagree, builds both architectures, and attaches the tarballs and

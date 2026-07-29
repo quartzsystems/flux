@@ -6,8 +6,9 @@
 # build time (see crates/flux-core/build.rs), but Cargo and npm both want a
 # literal in their manifest, so those two are written here and checked in CI:
 #
-#     scripts/sync-version.sh          # write the manifests
-#     scripts/sync-version.sh --check  # fail if they are out of step
+#     scripts/sync-version.sh --set 0.2.0  # raise the version and propagate it
+#     scripts/sync-version.sh              # propagate the current VERSION
+#     scripts/sync-version.sh --check      # fail if they are out of step
 #
 # The check is what makes VERSION authoritative rather than merely first. Without
 # it the manifests drift, and the first anyone notices is a release tarball whose
@@ -26,20 +27,36 @@ readonly PACKAGE_JSON="$ROOT/web/package.json"
 
 die() { printf 'sync-version: %s\n' "$*" >&2; exit 1; }
 
+# Semantic version with an optional pre-release. Defined once so that setting a
+# version and validating the file cannot disagree about what a version is.
+readonly SEMVER='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+
 check_only=false
+new_version=""
 case "${1:-}" in
     --check) check_only=true ;;
+    --set)   new_version="${2:?--set needs a version, e.g. --set 0.2.0}" ;;
     "")      ;;
-    *)       die "unknown argument ${1}; expected --check or nothing" ;;
+    *)       die "unknown argument ${1}; expected --check, --set <version>, or nothing" ;;
 esac
+
+# `--set` writes VERSION and then falls through to the sync below, so raising
+# the version and propagating it are one operation. Keeping them separate is
+# what let a release go out with the manifests a version behind.
+if [[ -n $new_version ]]; then
+    [[ $new_version =~ $SEMVER ]] \
+        || die "'$new_version' is not a version like 1.2.3 or 1.2.3-rc.1"
+    printf '%s\n' "$new_version" > "$VERSION_FILE"
+    printf 'sync-version: VERSION set to %s\n' "$new_version"
+fi
 
 [[ -f $VERSION_FILE ]] || die "no VERSION file at $VERSION_FILE"
 version="$(tr -d '[:space:]' < "$VERSION_FILE")"
 
-# Semantic version with an optional pre-release. Validated here rather than
-# wherever it is consumed, because a malformed version becomes a release tag, a
+# Validated on the way out as well as in, because VERSION is edited by hand more
+# often than through --set, and a malformed version becomes a release tag, a
 # tarball name, and a systemd unit description before anyone reads it.
-[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] \
+[[ $version =~ $SEMVER ]] \
     || die "VERSION holds ${version@Q}, which is not a version like 1.2.3 or 1.2.3-rc.1"
 
 # --- Cargo -----------------------------------------------------------------
