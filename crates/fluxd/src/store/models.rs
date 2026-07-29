@@ -399,6 +399,36 @@ pub struct Flow {
 }
 
 // ---------------------------------------------------------------------------
+// Load profiles
+// ---------------------------------------------------------------------------
+
+/// A `load_profiles` row.
+///
+/// `config` is a serialised `flux_core::profile::LoadProfileConfig`, kept as
+/// `Value` here so a row written by a newer version can still be listed rather
+/// than making the whole page fail to load.
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadProfile {
+    /// Primary key.
+    #[schema(value_type = String, format = Uuid)]
+    pub id: Id,
+    /// Operator-assigned label.
+    pub name: String,
+    /// Serialised `LoadProfileConfig`.
+    pub config: serde_json::Value,
+    /// Who created it.
+    #[schema(value_type = Option<String>, format = Uuid)]
+    pub created_by: Option<Id>,
+    /// When it was created.
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    /// When it last changed.
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -420,6 +450,13 @@ pub struct Test {
     /// Flows this test drives, in order.
     #[schema(value_type = Vec<String>)]
     pub flow_ids: Vec<Id>,
+    /// Load profiles this test drives, in order.
+    ///
+    /// Separate from `flow_ids` because the two are programmed through
+    /// different engine calls, and a test mixing them would need two engine
+    /// instances in different modes.
+    #[schema(value_type = Vec<String>)]
+    pub profile_ids: Vec<Id>,
     /// Who created it.
     #[schema(value_type = Option<String>, format = Uuid)]
     pub created_by: Option<Id>,

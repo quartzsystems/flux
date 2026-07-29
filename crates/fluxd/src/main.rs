@@ -23,6 +23,7 @@ mod orch;
 mod portmgr;
 mod state;
 mod store;
+mod tls;
 
 use collector::Collector;
 use config::{Config, PortdBackend};
@@ -102,26 +103,73 @@ async fn main() -> anyhow::Result<()> {
         Arc::clone(&mock_controls),
     );
 
-    let state = AppState::new(
-        store.clone(),
+    // One outbound client for the whole daemon: it holds the connection pool
+    // the analytics proxy reuses.
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .context("building the outbound HTTP client")?;
+
+    let state = AppState::new(state::AppStateParts {
+        store: store.clone(),
         ports,
-        engines.clone(),
-        stats.clone(),
-        runs.clone(),
+        engines: engines.clone(),
+        collector: stats.clone(),
+        runs: runs.clone(),
         mock_controls,
-        Arc::clone(&config),
-    );
+        http,
+        config: Arc::clone(&config),
+    });
     tokio::spawn(janitor(store));
 
-    let listener = tokio::net::TcpListener::bind(config.bind)
-        .await
-        .with_context(|| format!("binding {}", config.bind))?;
-    tracing::info!(address = %listener.local_addr()?, "listening");
+    let router = api::router(state);
+    let tls_paths = tls::Paths::in_dir(&config.tls_dir);
 
-    axum::serve(listener, api::router(state))
-        .with_graceful_shutdown(shutdown_signal())
+    if tls_paths.present() {
+        tracing::info!(
+            address = %config.bind,
+            certificate = %tls_paths.certificate.display(),
+            "listening with TLS"
+        );
+
+        let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(
+            &tls_paths.certificate,
+            &tls_paths.private_key,
+        )
         .await
-        .context("running the HTTP server")?;
+        .context("loading the installed TLS certificate")?;
+
+        // axum-server drives its own accept loop rather than taking a
+        // TcpListener, so graceful shutdown goes through its handle.
+        let handle = axum_server::Handle::new();
+        let shutdown = handle.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown.graceful_shutdown(Some(Duration::from_secs(10)));
+        });
+
+        axum_server::bind_rustls(config.bind, tls)
+            .handle(handle)
+            .serve(router.into_make_service())
+            .await
+            .context("running the HTTPS server")?;
+    } else {
+        let listener = tokio::net::TcpListener::bind(config.bind)
+            .await
+            .with_context(|| format!("binding {}", config.bind))?;
+        tracing::info!(address = %listener.local_addr()?, "listening");
+
+        if !config.is_fully_mocked() {
+            tracing::warn!(
+                "serving plain HTTP; the session cookie is a bearer credential,                  so install a certificate under Settings before using this appliance                  on a shared network"
+            );
+        }
+
+        axum::serve(listener, router)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("running the HTTP server")?;
+    }
 
     // Order matters on the way out: stop the runs so they unwind and stop
     // traffic themselves, then stop collecting, then take the engines down.

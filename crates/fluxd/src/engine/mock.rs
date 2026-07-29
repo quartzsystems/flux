@@ -25,8 +25,8 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use flux_core::engine::{
-    Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus, LatencyStats, PgId,
-    PgidStats, PortStats, StartOptions, StreamSpec,
+    AstfProfile, AstfStats, Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus,
+    LatencyStats, PgId, PgidStats, PortStats, StartOptions, StreamSpec,
 };
 use flux_core::types::EngineMode;
 use rand::Rng;
@@ -49,6 +49,14 @@ const DEFAULT_LATENCY_SIGMA: f64 = 0.35;
 
 /// How many latency samples to draw per statistics read.
 const LATENCY_SAMPLES: usize = 64;
+
+/// How long a simulated connection stays open.
+///
+/// A short-lived HTTP conversation over a low-latency link. It is what turns a
+/// connection rate into a concurrency figure — the two are related by exactly
+/// this constant — so a profile at 10,000 per second settles at about 2,000
+/// open connections.
+const CONNECTION_LIFETIME_SECS: f64 = 0.2;
 
 /// z-scores for the percentiles reported, from the standard normal.
 const Z_P99: f64 = 2.326_347_9;
@@ -148,6 +156,20 @@ pub struct MockEngine {
 #[derive(Debug)]
 struct State {
     ports: Vec<MockPort>,
+    /// The programmed stateful load, once one has been loaded.
+    astf: Option<AstfLoad>,
+}
+
+/// A simulated L4-7 load.
+#[derive(Debug, Clone)]
+struct AstfLoad {
+    profile: AstfProfile,
+    /// When the load started, if it is running.
+    since: Option<Instant>,
+    /// Counters from completed periods, carried across start and stop.
+    settled: AstfStats,
+    /// Stop after this many seconds.
+    duration_secs: Option<f64>,
 }
 
 /// One simulated port.
@@ -200,7 +222,7 @@ impl MockEngine {
             started_at: Instant::now(),
             timescale,
             controls: MockControls::default(),
-            state: Mutex::new(State { ports }),
+            state: Mutex::new(State { ports, astf: None }),
         }
     }
 
@@ -348,6 +370,62 @@ impl MockEngine {
         }
     }
 
+    /// The connection counters a stateful load has accumulated.
+    ///
+    /// The model is a ramp to the target rate followed by a steady state, with
+    /// connections living long enough that concurrency settles at rate times
+    /// lifetime — capped by the profile's ceiling, which is what makes a
+    /// too-low ceiling visibly throttle the achieved rate rather than silently
+    /// being ignored.
+    fn astf_totals(&self, load: &AstfLoad) -> AstfStats {
+        let mut totals = load.settled;
+
+        let Some(since) = load.since else { return totals };
+
+        let elapsed = {
+            let raw = since.elapsed().as_secs_f64() * self.timescale;
+            match load.duration_secs {
+                Some(limit) => raw.min(limit),
+                None => raw,
+            }
+        };
+
+        let profile = &load.profile;
+        let warmup = profile.warmup_secs.max(0.0);
+
+        // Integral of the ramp: half the target over the warm-up triangle, then
+        // the full rate for whatever follows.
+        let attempted = if elapsed <= warmup && warmup > 0.0 {
+            0.5 * profile.target_cps * elapsed * elapsed / warmup
+        } else {
+            let ramp_area = 0.5 * profile.target_cps * warmup;
+            ramp_area + profile.target_cps * (elapsed - warmup)
+        };
+
+        // Injected loss stands in for a device that cannot complete handshakes.
+        let failure = self.controls.get().loss_pct / 100.0;
+        let attempted = attempted.max(0.0) as u64;
+        let failed = (attempted as f64 * failure) as u64;
+        let established = attempted.saturating_sub(failed);
+
+        // Concurrency is arrival rate times connection lifetime, held under the
+        // configured ceiling.
+        let current_rate = profile.target_cps * ramp_factor(elapsed, warmup);
+        let active = (current_rate * CONNECTION_LIFETIME_SECS)
+            .min(profile.max_concurrent as f64)
+            .max(0.0) as u64;
+
+        totals.attempted += attempted;
+        totals.established += established;
+        totals.connect_errors += failed;
+        totals.closed += established.saturating_sub(active.min(established));
+        totals.active = active;
+        totals.tx_bytes += established * u64::from(profile.request_bytes);
+        totals.rx_bytes += established * u64::from(profile.response_bytes);
+
+        totals
+    }
+
     /// Folds a port's in-flight counters into its settled totals.
     ///
     /// Called when transmission stops, so the numbers do not jump backwards the
@@ -391,6 +469,14 @@ fn capped(stream: &StreamSpec, scaled_seconds: f64) -> f64 {
         Some(budget) => frames.min(budget as f64),
         None => frames,
     }
+}
+
+/// The fraction of the target rate in effect after `elapsed` seconds.
+fn ramp_factor(elapsed: f64, warmup_secs: f64) -> f64 {
+    if warmup_secs <= 0.0 {
+        return 1.0;
+    }
+    (elapsed / warmup_secs).clamp(0.0, 1.0)
 }
 
 /// One draw from the standard normal, by the Box-Muller transform.
@@ -555,6 +641,65 @@ impl Engine for MockEngine {
     async fn pgid_stats(&self, pgids: &[PgId]) -> Result<Vec<PgidStats>, EngineError> {
         let state = self.state();
         Ok(pgids.iter().map(|pgid| self.pgid_totals(&state, *pgid)).collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // Stateful mode
+    // -----------------------------------------------------------------------
+
+    async fn load_astf_profile(&self, profile: AstfProfile) -> Result<(), EngineError> {
+        if self.mode != EngineMode::Astf {
+            return Err(EngineError::Rejected(
+                "this instance was started in stateless mode".into(),
+            ));
+        }
+
+        for port in [profile.client_port, profile.server_port] {
+            self.check_port(port)?;
+        }
+
+        self.state().astf = Some(AstfLoad {
+            profile,
+            since: None,
+            settled: AstfStats::default(),
+            duration_secs: None,
+        });
+        Ok(())
+    }
+
+    async fn start_astf(&self, duration_secs: Option<f64>) -> Result<(), EngineError> {
+        let mut state = self.state();
+        let Some(load) = state.astf.as_mut() else {
+            return Err(EngineError::Rejected("no stateful profile has been loaded".into()));
+        };
+
+        load.since = Some(Instant::now());
+        load.duration_secs = duration_secs;
+        Ok(())
+    }
+
+    async fn stop_astf(&self) -> Result<(), EngineError> {
+        let mut state = self.state();
+        let Some(load) = state.astf.as_ref() else {
+            return Ok(());
+        };
+
+        // Fold the in-flight counters into the settled total so the numbers do
+        // not jump backwards the moment the clock stops advancing them.
+        let totals = self.astf_totals(load);
+        if let Some(load) = state.astf.as_mut() {
+            load.settled = totals;
+            load.since = None;
+        }
+        Ok(())
+    }
+
+    async fn astf_stats(&self) -> Result<AstfStats, EngineError> {
+        let state = self.state();
+        match state.astf.as_ref() {
+            Some(load) => Ok(self.astf_totals(load)),
+            None => Ok(AstfStats::default()),
+        }
     }
 }
 
@@ -899,6 +1044,197 @@ mod tests {
         let engine = MockEngine::new(EngineMode::Stl, 2);
         let everything: Vec<EnginePortId> = (0..16).map(EnginePortId).collect();
         assert!(engine.stop_traffic(&everything).await.is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Stateful mode
+    // -----------------------------------------------------------------------
+
+    /// A stateful load at the given connection rate.
+    fn astf_profile(target_cps: f64, warmup_secs: f64) -> AstfProfile {
+        AstfProfile {
+            client_port: EnginePortId(0),
+            server_port: EnginePortId(1),
+            client_cidr: "10.0.0.0/16".into(),
+            server_cidr: "10.1.0.0/24".into(),
+            client_port_min: 1024,
+            client_port_max: 65535,
+            server_listen_port: 80,
+            request_bytes: 200,
+            response_bytes: 32_768,
+            target_cps,
+            max_concurrent: 1_000_000,
+            warmup_secs,
+            pcap_ref: None,
+        }
+    }
+
+    /// A stateful instance with a profile already loaded.
+    async fn stateful(target_cps: f64, warmup_secs: f64) -> MockEngine {
+        let engine = MockEngine::new(EngineMode::Astf, 2);
+        engine.load_astf_profile(astf_profile(target_cps, warmup_secs)).await.unwrap();
+        engine
+    }
+
+    #[tokio::test]
+    async fn a_stateless_instance_refuses_stateful_operations() {
+        // The port group declares its mode; asking a stateless instance for a
+        // stateful load is a configuration error worth naming.
+        let engine = MockEngine::new(EngineMode::Stl, 2);
+        let result = engine.load_astf_profile(astf_profile(1000.0, 0.0)).await;
+
+        assert!(matches!(result, Err(EngineError::Rejected(_))), "got {result:?}");
+    }
+
+    #[tokio::test]
+    async fn starting_without_a_profile_is_refused() {
+        let engine = MockEngine::new(EngineMode::Astf, 2);
+        assert!(matches!(engine.start_astf(None).await, Err(EngineError::Rejected(_))));
+    }
+
+    #[tokio::test]
+    async fn connection_counters_stay_at_zero_until_the_load_starts() {
+        let engine = stateful(10_000.0, 0.0).await;
+        let stats = engine.astf_stats().await.unwrap();
+
+        assert_eq!(stats.attempted, 0);
+        assert_eq!(stats.established, 0);
+        assert_eq!(stats.active, 0);
+    }
+
+    #[tokio::test]
+    async fn connections_accumulate_at_the_configured_rate() {
+        let engine = stateful(100_000.0, 0.0).await;
+        engine.start_astf(None).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let stats = engine.astf_stats().await.unwrap();
+
+        // 100k per second for about 120 ms. Loose bounds: this is wall-clock
+        // time on a shared machine.
+        assert!(
+            (5_000..60_000).contains(&stats.attempted),
+            "got {} connections",
+            stats.attempted
+        );
+        assert_eq!(stats.established, stats.attempted, "no failures were injected");
+    }
+
+    #[tokio::test]
+    async fn the_warmup_delivers_fewer_connections_than_a_standing_start() {
+        // Ramping matters: a profile that jumps straight to its target measures
+        // the device's response to a step rather than its steady-state capacity.
+        let ramped = stateful(100_000.0, 10.0).await;
+        let immediate = stateful(100_000.0, 0.0).await;
+
+        ramped.start_astf(None).await.unwrap();
+        immediate.start_astf(None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+
+        let with_ramp = ramped.astf_stats().await.unwrap().attempted;
+        let without = immediate.astf_stats().await.unwrap().attempted;
+
+        assert!(
+            with_ramp < without,
+            "a ramped profile should be behind an unramped one: {with_ramp} vs {without}"
+        );
+    }
+
+    #[tokio::test]
+    async fn injected_loss_shows_up_as_failed_handshakes() {
+        let engine = stateful(100_000.0, 0.0).await;
+        engine.controls().set_loss_pct(10.0);
+        engine.start_astf(None).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let stats = engine.astf_stats().await.unwrap();
+
+        assert!(stats.connect_errors > 0);
+        let failure = stats.failure_pct();
+        assert!((failure - 10.0).abs() < 1.5, "expected about 10%, got {failure}");
+    }
+
+    #[tokio::test]
+    async fn concurrency_is_bounded_by_the_profiles_ceiling() {
+        // A ceiling below rate times lifetime must visibly throttle the achieved
+        // concurrency rather than being silently ignored.
+        let engine = MockEngine::new(EngineMode::Astf, 2);
+        let mut profile = astf_profile(1_000_000.0, 0.0);
+        profile.max_concurrent = 500;
+        engine.load_astf_profile(profile).await.unwrap();
+        engine.start_astf(None).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        assert_eq!(engine.astf_stats().await.unwrap().active, 500);
+    }
+
+    #[tokio::test]
+    async fn application_bytes_follow_the_conversation_size() {
+        let engine = stateful(100_000.0, 0.0).await;
+        engine.start_astf(None).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let stats = engine.astf_stats().await.unwrap();
+
+        assert_eq!(stats.tx_bytes, stats.established * 200);
+        assert_eq!(stats.rx_bytes, stats.established * 32_768);
+    }
+
+    #[tokio::test]
+    async fn connection_counters_survive_a_stop_rather_than_resetting() {
+        let engine = stateful(100_000.0, 0.0).await;
+        engine.start_astf(None).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        engine.stop_astf().await.unwrap();
+
+        let after_stop = engine.astf_stats().await.unwrap().attempted;
+        assert!(after_stop > 0);
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        assert_eq!(
+            engine.astf_stats().await.unwrap().attempted,
+            after_stop,
+            "a stopped load must not keep counting"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bounded_load_stops_accumulating_when_its_time_is_up() {
+        let engine = stateful(100_000.0, 0.0).await;
+        engine.start_astf(Some(0.05)).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        let first = engine.astf_stats().await.unwrap().attempted;
+
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(engine.astf_stats().await.unwrap().attempted, first);
+    }
+
+    #[tokio::test]
+    async fn a_profile_naming_a_port_the_instance_lacks_is_refused() {
+        let engine = MockEngine::new(EngineMode::Astf, 2);
+        let mut profile = astf_profile(1000.0, 0.0);
+        profile.server_port = EnginePortId(7);
+
+        assert!(matches!(
+            engine.load_astf_profile(profile).await,
+            Err(EngineError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn failure_percentage_is_zero_before_anything_is_attempted() {
+        assert_eq!(AstfStats::default().failure_pct(), 0.0);
+        assert!(AstfStats::default().failure_pct().is_finite());
+    }
+
+    #[test]
+    fn the_ramp_climbs_and_then_holds() {
+        assert_eq!(ramp_factor(0.0, 10.0), 0.0);
+        assert_eq!(ramp_factor(5.0, 10.0), 0.5);
+        assert_eq!(ramp_factor(10.0, 10.0), 1.0);
+        assert_eq!(ramp_factor(60.0, 10.0), 1.0);
+        assert_eq!(ramp_factor(0.0, 0.0), 1.0, "no warm-up means full rate at once");
     }
 
     #[test]

@@ -28,6 +28,7 @@ pub mod flows;
 pub mod models;
 pub mod port_groups;
 pub mod ports;
+pub mod profiles;
 pub mod reservations;
 pub mod runs;
 pub mod sessions;

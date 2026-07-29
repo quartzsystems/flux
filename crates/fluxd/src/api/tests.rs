@@ -53,8 +53,13 @@ pub struct TestInput {
     #[serde(default)]
     pub config: serde_json::Value,
     /// Flows this test drives, in order.
+    #[serde(default)]
     #[schema(value_type = Vec<String>)]
     pub flow_ids: Vec<Id>,
+    /// Load profiles this test drives, in order.
+    #[serde(default)]
+    #[schema(value_type = Vec<String>)]
+    pub profile_ids: Vec<Id>,
 }
 
 impl TestInput {
@@ -65,13 +70,33 @@ impl TestInput {
         let name = self.name.trim();
         v.require(!name.is_empty(), "name", "must not be empty");
         v.require(name.chars().count() <= 64, "name", "must be at most 64 characters");
-        v.require(!self.flow_ids.is_empty(), "flowIds", "a test needs at least one flow");
+        v.require(
+            !self.flow_ids.is_empty() || !self.profile_ids.is_empty(),
+            "flowIds",
+            "a test needs at least one flow or load profile",
+        );
+
+        // Flows are stateless streams and profiles are connection-level loads;
+        // an engine instance is in one mode or the other, so a test cannot mix
+        // them.
+        v.require(
+            self.flow_ids.is_empty() || self.profile_ids.is_empty(),
+            "profileIds",
+            "a test drives either flows or load profiles, not both",
+        );
 
         let mut seen = std::collections::HashSet::new();
         v.require(
             self.flow_ids.iter().all(|id| seen.insert(*id)),
             "flowIds",
             "a flow may appear only once in a test",
+        );
+
+        let mut seen_profiles = std::collections::HashSet::new();
+        v.require(
+            self.profile_ids.iter().all(|id| seen_profiles.insert(*id)),
+            "profileIds",
+            "a load profile may appear only once in a test",
         );
 
         v.finish()?;
@@ -88,6 +113,7 @@ async fn create(
 ) -> ApiResult<Json<Test>> {
     body.validate()?;
     check_flows_exist(&state, &body.flow_ids).await?;
+    check_profiles_exist(&state, &body.profile_ids).await?;
 
     let test = test_store::create(
         state.store.pool(),
@@ -95,6 +121,7 @@ async fn create(
         body.test_type,
         &body.config,
         &body.flow_ids,
+        &body.profile_ids,
         Some(actor.user_id),
     )
     .await
@@ -114,6 +141,7 @@ async fn update(
 ) -> ApiResult<Json<Test>> {
     body.validate()?;
     check_flows_exist(&state, &body.flow_ids).await?;
+    check_profiles_exist(&state, &body.profile_ids).await?;
 
     let test = test_store::update(
         state.store.pool(),
@@ -122,6 +150,7 @@ async fn update(
         body.test_type,
         &body.config,
         &body.flow_ids,
+        &body.profile_ids,
     )
     .await
     .map_err(name_conflict)?
@@ -221,6 +250,29 @@ async fn check_flows_exist(state: &AppState, flow_ids: &[Id]) -> ApiResult<()> {
     Err(ApiError::Validation(errors))
 }
 
+/// Rejects a test naming a load profile that does not exist.
+async fn check_profiles_exist(state: &AppState, profile_ids: &[Id]) -> ApiResult<()> {
+    let found = crate::store::profiles::get_many(state.store.pool(), profile_ids).await?;
+    if found.len() == profile_ids.len() {
+        return Ok(());
+    }
+
+    let present: std::collections::HashSet<Id> = found.iter().map(|p| p.id).collect();
+    let errors = profile_ids
+        .iter()
+        .enumerate()
+        .filter(|(_, id)| !present.contains(id))
+        .map(|(i, id)| {
+            flux_core::config::FieldError::new(
+                format!("profileIds.{i}"),
+                format!("no load profile with id {id}"),
+            )
+        })
+        .collect();
+
+    Err(ApiError::Validation(errors))
+}
+
 /// Turns a duplicate-name insert into a field-level conflict.
 fn name_conflict(err: sqlx::Error) -> ApiError {
     if is_unique_violation(&err) {
@@ -241,6 +293,7 @@ mod test_endpoints {
             test_type: TestType::Manual,
             config: serde_json::json!({}),
             flow_ids,
+            profile_ids: Vec::new(),
         }
     }
 

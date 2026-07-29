@@ -9,6 +9,7 @@
 //! run so far, separated from the async execution loop in `run`, so it can be
 //! table-tested exhaustively without an engine at all.
 
+pub mod profile;
 pub mod rfc2544;
 pub mod statemachine;
 pub mod run;

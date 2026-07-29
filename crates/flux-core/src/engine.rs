@@ -240,6 +240,84 @@ pub struct StreamModifier {
     pub step: u64,
 }
 
+// ---------------------------------------------------------------------------
+// Stateful (ASTF) traffic
+// ---------------------------------------------------------------------------
+
+/// A programmed L4-7 load, in an engine-agnostic form.
+///
+/// Stands in the same relationship to [`LoadProfileConfig`] as [`StreamSpec`]
+/// does to `FlowConfig`: the orchestrator's translator produces it, and each
+/// engine renders it into whatever its own protocol wants.
+///
+/// [`LoadProfileConfig`]: crate::profile::LoadProfileConfig
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AstfProfile {
+    /// Engine port the emulated clients sit behind.
+    pub client_port: EnginePortId,
+    /// Engine port the emulated servers sit behind.
+    pub server_port: EnginePortId,
+    /// Client address block, in CIDR form.
+    pub client_cidr: String,
+    /// Server address block, in CIDR form.
+    pub server_cidr: String,
+    /// Lowest client source port.
+    pub client_port_min: u16,
+    /// Highest client source port.
+    pub client_port_max: u16,
+    /// The destination port servers listen on.
+    pub server_listen_port: u16,
+    /// Bytes the client sends per connection.
+    pub request_bytes: u32,
+    /// Bytes the server returns per connection.
+    pub response_bytes: u32,
+    /// Connections per second once warmed up.
+    pub target_cps: f64,
+    /// Ceiling on simultaneously open connections.
+    pub max_concurrent: u64,
+    /// Seconds spent climbing to the target rate.
+    pub warmup_secs: f64,
+    /// A capture to replay instead of the synthetic exchange, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pcap_ref: Option<String>,
+}
+
+/// Connection-level counters, cumulative since the last clear.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AstfStats {
+    /// Connections the clients attempted.
+    pub attempted: u64,
+    /// Connections that completed their handshake.
+    pub established: u64,
+    /// Connections that closed cleanly.
+    pub closed: u64,
+    /// Connections currently open.
+    pub active: u64,
+    /// Handshakes that never completed.
+    pub connect_errors: u64,
+    /// Connections reset by either side.
+    pub resets: u64,
+    /// Application bytes sent by the clients.
+    pub tx_bytes: u64,
+    /// Application bytes received by the clients.
+    pub rx_bytes: u64,
+}
+
+impl AstfStats {
+    /// Fraction of attempted connections that failed to establish.
+    ///
+    /// Returns `0.0` when nothing was attempted, which is the meaningful answer
+    /// for a profile that has not started rather than a NaN.
+    pub fn failure_pct(&self) -> f64 {
+        if self.attempted == 0 {
+            return 0.0;
+        }
+        (self.connect_errors as f64 / self.attempted as f64) * 100.0
+    }
+}
+
 /// Options controlling a traffic start.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -309,6 +387,39 @@ pub trait Engine: Send + Sync + 'static {
 
     /// Reads per-packet-group counters for `pgids`, in the order requested.
     async fn pgid_stats(&self, pgids: &[PgId]) -> Result<Vec<PgidStats>, EngineError>;
+
+    // -----------------------------------------------------------------------
+    // Stateful mode
+    //
+    // These have default implementations that refuse, because a stateless
+    // instance genuinely cannot do them. Making them part of this trait rather
+    // than a second one keeps a single handle type and a single registry: a
+    // port group is one instance in one mode, and the mode is a property of the
+    // instance rather than of the code that holds it.
+    // -----------------------------------------------------------------------
+
+    /// Programs a stateful load.
+    async fn load_astf_profile(&self, _profile: AstfProfile) -> Result<(), EngineError> {
+        Err(EngineError::Rejected(
+            "this engine instance is stateless; create the port group with engine mode `astf`"
+                .into(),
+        ))
+    }
+
+    /// Starts the programmed stateful load.
+    async fn start_astf(&self, _duration_secs: Option<f64>) -> Result<(), EngineError> {
+        Err(EngineError::Rejected("this engine instance is stateless".into()))
+    }
+
+    /// Stops the stateful load.
+    async fn stop_astf(&self) -> Result<(), EngineError> {
+        Err(EngineError::Rejected("this engine instance is stateless".into()))
+    }
+
+    /// Reads connection-level counters.
+    async fn astf_stats(&self) -> Result<AstfStats, EngineError> {
+        Err(EngineError::Rejected("this engine instance is stateless".into()))
+    }
 }
 
 #[cfg(test)]

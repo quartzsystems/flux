@@ -5,10 +5,10 @@
 //! to it.
 
 use axum::extract::{Path, State};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use flux_core::config::{EngineInstanceConfig, Validate, Validation};
-use flux_core::types::{EngineMode, Id};
+use flux_core::types::{EngineMode, Id, PortGroupState};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -23,6 +23,135 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
         .route("/{id}", get(get_one).put(update).delete(delete))
+        .route("/{id}/start", post(start))
+        .route("/{id}/stop", post(stop))
+}
+
+/// Brings up the engine instance for a group.
+///
+/// Runs launch an engine on demand, so this exists for the case an operator
+/// wants to know a group works — and for relaunching one that has failed —
+/// without committing to a test.
+#[tracing::instrument(skip(state), fields(group_id = %id))]
+async fn start(
+    State(state): State<AppState>,
+    AdminAuth(actor): AdminAuth,
+    Path(id): Path<Id>,
+) -> ApiResult<Json<PortGroupView>> {
+    let group = port_groups::get(state.store.pool(), id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("port group {id}")))?;
+
+    if let Some(existing) = state.engines.get(id).await {
+        if existing.is_ready() {
+            return Err(ApiError::Conflict(
+                "this group already has a running engine".into(),
+            ));
+        }
+        // Anything other than ready is stale; replace it rather than refusing
+        // to relaunch a group whose engine has already gone away.
+        state.engines.remove(id).await;
+    }
+
+    let member_ids = port_groups::member_ids(state.store.pool(), id).await?;
+    let members = ports::get_many_ordered(state.store.pool(), &member_ids).await?;
+    if members.is_empty() {
+        return Err(ApiError::Conflict("this group has no member ports".into()));
+    }
+
+    let instance: flux_core::config::EngineInstanceConfig =
+        serde_json::from_value(group.trex_cfg.clone()).unwrap_or_default();
+
+    port_groups::set_state(state.store.pool(), id, PortGroupState::Starting, None).await?;
+
+    let launched = crate::engine::launch::launch(
+        &state.config,
+        crate::engine::launch::LaunchRequest {
+            group_id: id,
+            mode: group.engine_mode,
+            pci_addrs: members.iter().map(|p| p.pci_addr.clone()).collect(),
+            numa_node: members.first().and_then(|p| p.numa_node).and_then(|n| u32::try_from(n).ok()),
+            instance,
+        },
+    )
+    .await;
+
+    let launched = match launched {
+        Ok(launched) => launched,
+        Err(err) => {
+            // The failure is recorded on the group so an operator sees it on the
+            // ports page rather than only in this response.
+            port_groups::set_state(
+                state.store.pool(),
+                id,
+                PortGroupState::Error,
+                Some(&err.to_string()),
+            )
+            .await?;
+            return Err(ApiError::Conflict(format!("could not start the engine: {err}")));
+        }
+    };
+
+    // Wait for the first health check before reporting the group ready.
+    let mut engine_state = launched.handle.watch_state();
+    while *engine_state.borrow() == crate::engine::EngineState::Starting {
+        if engine_state.changed().await.is_err() {
+            break;
+        }
+    }
+
+    let (group_state, error) = match launched.handle.state() {
+        crate::engine::EngineState::Ready => (PortGroupState::Ready, None),
+        other => (PortGroupState::Error, Some(format!("{other:?}"))),
+    };
+
+    if let Some(controls) = launched.controls {
+        state.mock_controls.write().await.insert(id, controls);
+    }
+    state.engines.insert(launched.handle).await;
+
+    let group =
+        port_groups::set_state(state.store.pool(), id, group_state, error.as_deref())
+            .await?
+            .ok_or_else(|| ApiError::NotFound(format!("port group {id}")))?;
+
+    tracing::info!(actor = %actor.username, state = %group_state, "port group engine started");
+    Ok(Json(PortGroupView { group, port_ids: member_ids }))
+}
+
+/// Stops the engine instance for a group.
+#[tracing::instrument(skip(state), fields(group_id = %id))]
+async fn stop(
+    State(state): State<AppState>,
+    AdminAuth(actor): AdminAuth,
+    Path(id): Path<Id>,
+) -> ApiResult<Json<PortGroupView>> {
+    // A run holding this group would have its engine pulled out from under it,
+    // which does not stop traffic cleanly.
+    for run_id in state.runs.active().await {
+        if let Some(run) = crate::store::runs::get(state.store.pool(), run_id).await? {
+            if !run.state.is_terminal() {
+                return Err(ApiError::Conflict(format!(
+                    "run {} is still in flight; stop it first",
+                    run.test_name
+                )));
+            }
+        }
+    }
+
+    if state.engines.remove(id).await.is_none() {
+        return Err(ApiError::Conflict("this group has no running engine".into()));
+    }
+    state.collector.stop(id).await;
+    state.mock_controls.write().await.remove(&id);
+
+    let group = port_groups::set_state(state.store.pool(), id, PortGroupState::Stopped, None)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("port group {id}")))?;
+    let port_ids = port_groups::member_ids(state.store.pool(), id).await?;
+
+    tracing::info!(actor = %actor.username, "port group engine stopped");
+    Ok(Json(PortGroupView { group, port_ids }))
 }
 
 /// A group with its member ports resolved.

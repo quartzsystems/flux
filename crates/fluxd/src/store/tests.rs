@@ -7,7 +7,7 @@ use super::models::Test;
 
 /// Columns selected wherever a full [`Test`] is returned.
 const COLUMNS: &str =
-    "id, name, type, config, flow_ids, created_by, created_at, updated_at";
+    "id, name, type, config, flow_ids, profile_ids, created_by, created_at, updated_at";
 
 /// Every test, alphabetically.
 pub async fn list(pool: &PgPool) -> sqlx::Result<Vec<Test>> {
@@ -31,17 +31,19 @@ pub async fn create(
     test_type: TestType,
     config: &serde_json::Value,
     flow_ids: &[Id],
+    profile_ids: &[Id],
     created_by: Option<Id>,
 ) -> sqlx::Result<Test> {
     sqlx::query_as::<_, Test>(&format!(
-        "INSERT INTO tests (name, type, config, flow_ids, created_by)
-         VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO tests (name, type, config, flow_ids, profile_ids, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING {COLUMNS}"
     ))
     .bind(name)
     .bind(test_type.as_str())
     .bind(config)
     .bind(flow_ids)
+    .bind(profile_ids)
     .bind(created_by)
     .fetch_one(pool)
     .await
@@ -55,10 +57,12 @@ pub async fn update(
     test_type: TestType,
     config: &serde_json::Value,
     flow_ids: &[Id],
+    profile_ids: &[Id],
 ) -> sqlx::Result<Option<Test>> {
     sqlx::query_as::<_, Test>(&format!(
         "UPDATE tests
-         SET name = $2, type = $3, config = $4, flow_ids = $5, updated_at = now()
+         SET name = $2, type = $3, config = $4, flow_ids = $5, profile_ids = $6,
+             updated_at = now()
          WHERE id = $1
          RETURNING {COLUMNS}"
     ))
@@ -67,6 +71,7 @@ pub async fn update(
     .bind(test_type.as_str())
     .bind(config)
     .bind(flow_ids)
+    .bind(profile_ids)
     .fetch_optional(pool)
     .await
 }

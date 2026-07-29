@@ -14,6 +14,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
+pub mod analytics;
 pub mod auth;
 pub mod debug;
 pub mod error;
@@ -24,8 +25,10 @@ pub mod openapi;
 pub mod pcap;
 pub mod port_groups;
 pub mod ports;
+pub mod profiles;
 pub mod report;
 pub mod runs;
+pub mod settings;
 pub mod spa;
 pub mod system;
 pub mod tests;
@@ -42,11 +45,13 @@ pub fn router(state: AppState) -> Router {
         .nest("/ports", ports::router())
         .nest("/port-groups", port_groups::router())
         .nest("/flows", flows::router())
+        .nest("/load-profiles", profiles::router())
+        .nest("/analytics", analytics::router())
         .nest("/tests", tests::router())
         .nest("/runs", runs::router())
         .nest("/users", users::router())
         .nest("/system", system::router())
-        .nest("/settings", system::settings_router())
+        .nest("/settings", settings::router())
         .nest("/stream", ws::router())
         .route("/openapi.json", get(openapi::document));
 

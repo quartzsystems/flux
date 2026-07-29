@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use flux_core::engine::{
-    Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus, PgId, PgidStats, PortStats,
-    StartOptions, StreamSpec,
+    AstfProfile, AstfStats, Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus,
+    PgId, PgidStats, PortStats, StartOptions, StreamSpec,
 };
 use flux_core::types::Id;
 use tokio::sync::{mpsc, oneshot, watch, RwLock};
@@ -64,6 +64,10 @@ enum Command {
     ClearStats(Vec<EnginePortId>, oneshot::Sender<Result<(), EngineError>>),
     PortStats(Vec<EnginePortId>, oneshot::Sender<Result<Vec<PortStats>, EngineError>>),
     PgidStats(Vec<PgId>, oneshot::Sender<Result<Vec<PgidStats>, EngineError>>),
+    LoadAstf(Box<AstfProfile>, oneshot::Sender<Result<(), EngineError>>),
+    StartAstf(Option<f64>, oneshot::Sender<Result<(), EngineError>>),
+    StopAstf(oneshot::Sender<Result<(), EngineError>>),
+    AstfStats(oneshot::Sender<Result<AstfStats, EngineError>>),
     Shutdown,
 }
 
@@ -205,6 +209,26 @@ impl EngineHandle {
         self.call(|tx| Command::PgidStats(pgids.to_vec(), tx)).await
     }
 
+    /// Programs a stateful load.
+    pub async fn load_astf_profile(&self, profile: AstfProfile) -> Result<(), EngineError> {
+        self.call(|tx| Command::LoadAstf(Box::new(profile), tx)).await
+    }
+
+    /// Starts the programmed stateful load.
+    pub async fn start_astf(&self, duration_secs: Option<f64>) -> Result<(), EngineError> {
+        self.call(|tx| Command::StartAstf(duration_secs, tx)).await
+    }
+
+    /// Stops the stateful load.
+    pub async fn stop_astf(&self) -> Result<(), EngineError> {
+        self.call(Command::StopAstf).await
+    }
+
+    /// Reads connection-level counters.
+    pub async fn astf_stats(&self) -> Result<AstfStats, EngineError> {
+        self.call(Command::AstfStats).await
+    }
+
     /// Asks the owning task to stop.
     ///
     /// Best effort: a task that has already exited is the outcome we wanted.
@@ -260,6 +284,12 @@ async fn run_engine(
             Command::ClearStats(ports, tx) => reply(tx, engine.clear_stats(&ports).await),
             Command::PortStats(ports, tx) => reply(tx, engine.port_stats(&ports).await),
             Command::PgidStats(pgids, tx) => reply(tx, engine.pgid_stats(&pgids).await),
+            Command::LoadAstf(profile, tx) => {
+                reply(tx, engine.load_astf_profile(*profile).await);
+            }
+            Command::StartAstf(duration, tx) => reply(tx, engine.start_astf(duration).await),
+            Command::StopAstf(tx) => reply(tx, engine.stop_astf().await),
+            Command::AstfStats(tx) => reply(tx, engine.astf_stats().await),
         }
     }
 
@@ -269,6 +299,9 @@ async fn run_engine(
     if let Err(err) = engine.stop_traffic(&ports).await {
         tracing::warn!(%err, "could not stop traffic during engine shutdown");
     }
+    // A stateless instance refuses this, which is the expected outcome and not
+    // worth logging as a failure.
+    let _ = engine.stop_astf().await;
 
     let _ = state.send(EngineState::Stopped);
     tracing::info!("engine task stopped");

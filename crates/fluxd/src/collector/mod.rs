@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
-use flux_core::engine::{EnginePortId, LatencyStats, PgId, PgidStats, PortStats};
+use flux_core::engine::{AstfStats, EnginePortId, LatencyStats, PgId, PgidStats, PortStats};
 use flux_core::types::Id;
 use serde::Serialize;
 use tokio::sync::{broadcast, RwLock};
@@ -67,6 +67,33 @@ pub struct StatsBatch {
     /// Progress of the run these samples belong to, when there is one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<RunProgress>,
+    /// Connection-level rates, for a stateful run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connections: Option<ConnectionSample>,
+}
+
+/// Connection-level rates for a stateful load.
+#[derive(Debug, Clone, Copy, Default, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionSample {
+    /// Connections established per second.
+    pub cps: f64,
+    /// Failed handshakes per second.
+    pub errors_per_sec: f64,
+    /// Connections currently open.
+    pub active: u64,
+    /// Cumulative connections attempted.
+    pub attempted: u64,
+    /// Cumulative connections established.
+    pub established: u64,
+    /// Cumulative failed handshakes.
+    pub connect_errors: u64,
+    /// Failed handshakes as a percentage of attempts.
+    pub failure_pct: f64,
+    /// Application bits per second sent by the clients.
+    pub tx_bps: f64,
+    /// Application bits per second received by the clients.
+    pub rx_bps: f64,
 }
 
 /// One port's rates.
@@ -157,6 +184,8 @@ pub struct CollectionTarget {
     pub pgids: Vec<(PgId, Id)>,
     /// The run these samples belong to, if any.
     pub run_id: Option<Id>,
+    /// Whether to poll connection-level statistics instead of packet groups.
+    pub stateful: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -294,8 +323,27 @@ async fn poll_loop(collector: Collector, target: CollectionTarget) {
             }
         };
 
+        // A stateful instance has no packet groups; asking for connection
+        // counters instead is the whole difference between the two modes here.
+        let connections = if target.stateful {
+            match target.engine.astf_stats().await {
+                Ok(stats) => stats,
+                Err(err) => {
+                    tracing::warn!(%err, "connection statistics poll failed");
+                    continue;
+                }
+            }
+        } else {
+            AstfStats::default()
+        };
+
         let now = Instant::now();
-        let current = Previous { at: now, ports: port_stats.clone(), pgids: pgid_stats.clone() };
+        let current = Previous {
+            at: now,
+            ports: port_stats.clone(),
+            pgids: pgid_stats.clone(),
+            connections,
+        };
 
         if let Some(prev) = &previous {
             let elapsed = now.duration_since(prev.at).as_secs_f64();
@@ -316,6 +364,22 @@ struct Previous {
     at: Instant,
     ports: Vec<PortStats>,
     pgids: Vec<PgidStats>,
+    connections: AstfStats,
+}
+
+/// Converts two connection samples into rates.
+fn connection_sample(before: AstfStats, now: AstfStats, elapsed: f64) -> ConnectionSample {
+    ConnectionSample {
+        cps: rate(before.established, now.established, elapsed),
+        errors_per_sec: rate(before.connect_errors, now.connect_errors, elapsed),
+        active: now.active,
+        attempted: now.attempted,
+        established: now.established,
+        connect_errors: now.connect_errors,
+        failure_pct: now.failure_pct(),
+        tx_bps: rate(before.tx_bytes, now.tx_bytes, elapsed) * 8.0,
+        rx_bps: rate(before.rx_bytes, now.rx_bytes, elapsed) * 8.0,
+    }
 }
 
 /// Builds one batch from two consecutive polls.
@@ -353,7 +417,11 @@ async fn build_batch(
         None => None,
     };
 
-    StatsBatch { ts: unix_now(), ports, streams, run }
+    let connections = target.stateful.then(|| {
+        connection_sample(previous.connections, current.connections, elapsed)
+    });
+
+    StatsBatch { ts: unix_now(), ports, streams, run, connections }
 }
 
 /// Converts two port counter samples into rates.
@@ -540,6 +608,7 @@ mod tests {
                     ports: BTreeMap::new(),
                     streams: BTreeMap::new(),
                     run: None,
+                    connections: None,
                 })
                 .await;
         }
@@ -562,6 +631,7 @@ mod tests {
                 ports: BTreeMap::new(),
                 streams: BTreeMap::new(),
                 run: None,
+                connections: None,
             })
             .await;
 
@@ -579,6 +649,7 @@ mod tests {
                 ports: BTreeMap::new(),
                 streams: BTreeMap::new(),
                 run: None,
+                connections: None,
             })
             .await;
         assert_eq!(collector.backfill().await.len(), 1);
@@ -616,7 +687,8 @@ mod tests {
         let mut ports = BTreeMap::new();
         ports.insert("p1".to_string(), PortSample { tx_pps: 1000.0, ..Default::default() });
 
-        let batch = StatsBatch { ts: 1712345678, ports, streams: BTreeMap::new(), run: None };
+        let batch =
+            StatsBatch { ts: 1712345678, ports, streams: BTreeMap::new(), run: None, connections: None };
         let json = serde_json::to_value(&batch).unwrap();
 
         assert_eq!(json["ts"], 1712345678i64);

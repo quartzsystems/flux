@@ -20,13 +20,14 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use flux_core::engine::{
-    Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus, LatencyStats, PgId,
-    PgidStats, PortStats, StartOptions, StreamSpec,
+    AstfProfile, AstfStats, Engine, EngineError, EngineHealth, EnginePortId, EnginePortStatus,
+    LatencyStats, PgId, PgidStats, PortStats, StartOptions, StreamSpec,
 };
 use flux_core::types::EngineMode;
 use serde_json::{json, Value};
 use tokio::sync::Mutex as AsyncMutex;
 
+pub mod astf;
 pub mod config;
 pub mod rpc;
 pub mod stream;
@@ -375,6 +376,83 @@ impl Engine for TrexEngine {
             self.rpc.lock().await.call_raw("get_pgid_stats", json!({ "pgids": ids })).await?;
 
         Ok(pgids.iter().map(|pgid| decode_pgid(&result, *pgid)).collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // Stateful mode
+    // -----------------------------------------------------------------------
+
+    async fn load_astf_profile(&self, profile: AstfProfile) -> Result<(), EngineError> {
+        if self.mode != EngineMode::Astf {
+            return Err(EngineError::Rejected(
+                "this instance was started in stateless mode; TRex cannot switch at run time"
+                    .into(),
+            ));
+        }
+
+        // TODO(trex-verify): `profile_load` takes the document under `profile`
+        // along with a fragment marker, because large profiles are sent in
+        // pieces. One-shot delivery sets first and last together.
+        let document = astf::encode(&profile);
+        self.rpc
+            .lock()
+            .await
+            .call_raw(
+                "profile_load",
+                json!({
+                    "handler": self.session_id,
+                    "profile": document,
+                    "fragment_first": true,
+                    "fragment_last": true,
+                }),
+            )
+            .await?;
+
+        tracing::info!(
+            target_cps = profile.target_cps,
+            max_concurrent = profile.max_concurrent,
+            "loaded a stateful profile"
+        );
+        Ok(())
+    }
+
+    async fn start_astf(&self, duration_secs: Option<f64>) -> Result<(), EngineError> {
+        // TODO(trex-verify): `start` in ASTF mode takes `mult`, `duration`, and
+        // `nc` (do not block on completion). A negative duration runs until
+        // stopped, as in stateless mode.
+        self.rpc
+            .lock()
+            .await
+            .call_raw(
+                "start",
+                json!({
+                    "handler": self.session_id,
+                    "mult": 1.0,
+                    "duration": duration_secs.unwrap_or(-1.0),
+                    "nc": true,
+                }),
+            )
+            .await?;
+
+        tracing::info!(?duration_secs, "stateful load started");
+        Ok(())
+    }
+
+    async fn stop_astf(&self) -> Result<(), EngineError> {
+        self.rpc
+            .lock()
+            .await
+            .call_raw("stop", json!({ "handler": self.session_id }))
+            .await?;
+
+        tracing::info!("stateful load stopped");
+        Ok(())
+    }
+
+    async fn astf_stats(&self) -> Result<AstfStats, EngineError> {
+        let result: Value =
+            self.rpc.lock().await.call_raw("get_astf_stats", json!({})).await?;
+        Ok(astf::decode_stats(&result))
     }
 }
 

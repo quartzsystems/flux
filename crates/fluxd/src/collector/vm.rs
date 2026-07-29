@@ -153,7 +153,7 @@ mod tests {
             },
         );
 
-        StatsBatch { ts: 1_712_345_678, ports, streams, run: None }
+        StatsBatch { ts: 1_712_345_678, ports, streams, run: None, connections: None }
     }
 
     #[test]
@@ -214,6 +214,7 @@ mod tests {
             ports: BTreeMap::new(),
             streams: BTreeMap::new(),
             run: None,
+            connections: None,
         };
         assert!(encode(&empty, None).is_empty());
     }

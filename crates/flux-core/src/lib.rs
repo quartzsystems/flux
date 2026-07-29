@@ -14,6 +14,7 @@ pub mod engine;
 pub mod flow;
 pub mod frame;
 pub mod port;
+pub mod profile;
 pub mod rate;
 pub mod rfc2544;
 pub mod types;

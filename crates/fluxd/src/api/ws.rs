@@ -160,11 +160,21 @@ impl Filter {
                 .collect()
         };
 
-        if ports.is_empty() && streams.is_empty() && batch.run.is_none() {
+        if ports.is_empty()
+            && streams.is_empty()
+            && batch.run.is_none()
+            && batch.connections.is_none()
+        {
             return None;
         }
 
-        Some(StatsBatch { ts: batch.ts, ports, streams, run: batch.run.clone() })
+        Some(StatsBatch {
+            ts: batch.ts,
+            ports,
+            streams,
+            run: batch.run.clone(),
+            connections: batch.connections,
+        })
     }
 }
 
@@ -326,6 +336,7 @@ mod tests {
             ts: 1,
             ports,
             streams,
+            connections: None,
             run: run_id.map(|id| RunProgress {
                 run_id: id.to_string(),
                 state: "running".into(),

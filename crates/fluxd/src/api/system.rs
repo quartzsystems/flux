@@ -4,7 +4,7 @@
 //! run a test", so it reaches every dependency rather than reporting only that
 //! the HTTP server is up. A health check that cannot fail is not a health check.
 
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::routing::get;
 use axum::Router;
 use flux_core::port::{HugepageSize, HugepagesStatus};
@@ -15,8 +15,7 @@ use super::error::{ApiError, ApiResult};
 use super::extract::{AdminAuth, Auth, Json};
 use crate::config::{EngineBackend, PortdBackend};
 use crate::state::AppState;
-use crate::store::models::Setting;
-use crate::store::{ports, settings};
+use crate::store::ports;
 
 /// Version of the running daemon, stamped in at build time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -26,11 +25,6 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/health", get(health))
         .route("/hugepages", get(hugepages_status).post(hugepages_setup))
-}
-
-/// Mounts the settings routes.
-pub fn settings_router() -> Router<AppState> {
-    Router::new().route("/", get(list_settings)).route("/{key}", get(get_setting).put(put_setting))
 }
 
 /// The appliance health report.
@@ -291,45 +285,4 @@ async fn hugepages_setup(
     let status = state.ports.hugepages_setup(body.count, body.size).await?;
     tracing::info!(actor = %actor.username, "hugepage allocation changed");
     Ok(Json(status))
-}
-
-// ---------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------
-
-/// Every setting.
-async fn list_settings(
-    State(state): State<AppState>,
-    _auth: AdminAuth,
-) -> ApiResult<Json<Vec<Setting>>> {
-    Ok(Json(settings::list(state.store.pool()).await?))
-}
-
-/// One setting.
-async fn get_setting(
-    State(state): State<AppState>,
-    _auth: AdminAuth,
-    Path(key): Path<String>,
-) -> ApiResult<Json<Setting>> {
-    settings::get(state.store.pool(), &key)
-        .await?
-        .map(Json)
-        .ok_or_else(|| ApiError::NotFound(format!("setting {key}")))
-}
-
-/// Writes a setting.
-#[tracing::instrument(skip(state, value), fields(%key))]
-async fn put_setting(
-    State(state): State<AppState>,
-    AdminAuth(actor): AdminAuth,
-    Path(key): Path<String>,
-    Json(value): Json<serde_json::Value>,
-) -> ApiResult<Json<Setting>> {
-    if key.trim().is_empty() || key.len() > 64 {
-        return Err(ApiError::field("key", "must be between 1 and 64 characters"));
-    }
-
-    let setting = settings::put(state.store.pool(), &key, &value, Some(actor.user_id)).await?;
-    tracing::info!(actor = %actor.username, "setting updated");
-    Ok(Json(setting))
 }

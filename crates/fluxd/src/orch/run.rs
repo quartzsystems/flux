@@ -21,6 +21,7 @@ use std::sync::Arc;
 use flux_core::config::{EngineInstanceConfig, Validate};
 use flux_core::engine::{EnginePortId, PgId, StartOptions};
 use flux_core::flow::FlowConfig;
+use flux_core::profile::LoadProfileConfig;
 use flux_core::rfc2544::Rfc2544Config;
 use flux_core::types::{Id, RunState, TestType};
 use serde_json::json;
@@ -32,7 +33,7 @@ use crate::collector::{CollectionTarget, Collector, RunProgress};
 use crate::engine::launch::{self, LaunchRequest};
 use crate::engine::{EngineHandle, EngineRegistry};
 use crate::config::Config;
-use crate::store::models::{Flow, Port, Test};
+use crate::store::models::{Flow, LoadProfile, Port, Test};
 use crate::store::{self, Store};
 
 /// A run that can be stopped.
@@ -192,14 +193,31 @@ impl RunSupervisor {
 
     /// Works out what a test would actually do, without doing any of it.
     async fn plan(&self, test: &Test) -> Result<RunPlan, RunError> {
-        if test.flow_ids.is_empty() {
-            return Err(RunError::Invalid("this test has no flows".into()));
+        if test.flow_ids.is_empty() && test.profile_ids.is_empty() {
+            return Err(RunError::Invalid("this test drives no flows or profiles".into()));
+        }
+
+        // Flows are stateless streams and profiles are connection-level loads;
+        // they are programmed through different engine calls and an instance is
+        // in one mode or the other, so a test cannot mix them.
+        if !test.flow_ids.is_empty() && !test.profile_ids.is_empty() {
+            return Err(RunError::Invalid(
+                "a test drives either flows or load profiles, not both".into(),
+            ));
         }
 
         let flows = store::flows::get_many(self.store.pool(), &test.flow_ids).await?;
         if flows.len() != test.flow_ids.len() {
             return Err(RunError::NotFound(
                 "one or more of this test's flows no longer exists".into(),
+            ));
+        }
+
+        let profile_rows =
+            store::profiles::get_many(self.store.pool(), &test.profile_ids).await?;
+        if profile_rows.len() != test.profile_ids.len() {
+            return Err(RunError::NotFound(
+                "one or more of this test's load profiles no longer exists".into(),
             ));
         }
 
@@ -246,6 +264,49 @@ impl RunSupervisor {
             }
 
             resolved.push(PlannedFlow { flow, config });
+        }
+
+        let mut planned_profiles = Vec::with_capacity(profile_rows.len());
+        for row in profile_rows {
+            let config: LoadProfileConfig =
+                serde_json::from_value(row.config.clone()).map_err(|e| {
+                    RunError::Invalid(format!("profile {} is unreadable: {e}", row.name))
+                })?;
+
+            for port_id in [config.client_port, config.server_port] {
+                if ports_by_id.contains_key(&port_id) {
+                    continue;
+                }
+                let port = store::ports::get(self.store.pool(), port_id)
+                    .await?
+                    .ok_or_else(|| {
+                        RunError::NotFound(format!(
+                            "profile {} names a port that no longer exists",
+                            row.name
+                        ))
+                    })?;
+
+                let port_group = port.group_id.ok_or_else(|| {
+                    RunError::Invalid(format!(
+                        "port {} is not in a port group, so no engine can drive it",
+                        port.name
+                    ))
+                })?;
+
+                match group_id {
+                    None => group_id = Some(port_group),
+                    Some(existing) if existing != port_group => {
+                        return Err(RunError::Invalid(
+                            "every profile in a test must use ports from one port group".into(),
+                        ));
+                    }
+                    Some(_) => {}
+                }
+
+                ports_by_id.insert(port_id, port);
+            }
+
+            planned_profiles.push(PlannedProfile { profile: row, config });
         }
 
         let group_id = group_id.ok_or_else(|| RunError::Invalid("no ports resolved".into()))?;
@@ -300,6 +361,7 @@ impl RunSupervisor {
             test_type: test.test_type,
             rfc2544,
             flows: resolved,
+            profiles: planned_profiles,
             ports,
             engine_index,
             member_ids,
@@ -359,6 +421,12 @@ impl RunSupervisor {
             return Err(format!("no link on {}; check the cabling", dark.join(", ")));
         }
 
+        // A stateful test programs a connection-level load instead of streams,
+        // so it diverges before any of the stream machinery runs.
+        if !plan.profiles.is_empty() {
+            return self.run_profiles(run_id, plan, engine, cancel).await;
+        }
+
         // Programme each flow onto its transmitting port, allocating packet
         // groups as we go so statistics can be attributed back to the flow.
         let mut pgid_map: Vec<(PgId, Id)> = Vec::new();
@@ -416,6 +484,7 @@ impl RunSupervisor {
                 ports: plan.ports.iter().map(|(i, p)| (*i, p.id)).collect(),
                 pgids: pgid_map,
                 run_id: Some(run_id),
+                stateful: false,
             })
             .await;
 
@@ -476,6 +545,136 @@ impl RunSupervisor {
         // Stop before reading, so the counters cannot move underneath the read.
         engine.stop_traffic(&tx_ports).await.map_err(|e| format!("stopping traffic: {e}"))?;
         self.record_results(run_id, plan, engine).await?;
+
+        Ok(())
+    }
+
+    /// Programs and runs a stateful load.
+    ///
+    /// One profile per run: an engine instance holds a single ASTF document, so
+    /// a test naming several would need them merged into one profile, which is
+    /// a different feature from running them in sequence.
+    async fn run_profiles(
+        &self,
+        run_id: Id,
+        plan: &RunPlan,
+        engine: &EngineHandle,
+        cancel: &CancellationToken,
+    ) -> Result<(), String> {
+        let planned = plan
+            .profiles
+            .first()
+            .ok_or_else(|| "no load profile to run".to_string())?;
+
+        if plan.profiles.len() > 1 {
+            return Err(format!(
+                "this test names {} load profiles; an engine instance runs one at a time",
+                plan.profiles.len()
+            ));
+        }
+
+        let load = super::profile::to_astf(&planned.config, &plan.engine_index)
+            .map_err(|e| format!("profile {}: {e}", planned.profile.name))?;
+
+        let target_cps = load.target_cps;
+        let warmup = load.warmup_secs;
+
+        engine
+            .load_astf_profile(load)
+            .await
+            .map_err(|e| format!("programming the load: {e}"))?;
+
+        // Collection starts before the load does, so the first sample after the
+        // start is a real one rather than the difference from nothing.
+        self.collector
+            .start(CollectionTarget {
+                group_id: plan.group_id,
+                engine: engine.clone(),
+                ports: plan.ports.iter().map(|(i, p)| (*i, p.id)).collect(),
+                pgids: Vec::new(),
+                run_id: Some(run_id),
+                stateful: true,
+            })
+            .await;
+
+        let duration = planned.config.duration_secs;
+        engine
+            .start_astf(duration)
+            .await
+            .map_err(|e| format!("starting the load: {e}"))?;
+
+        self.transition(run_id, RunState::Running, None).await;
+        self.collector
+            .set_progress(
+                run_id,
+                RunProgress {
+                    run_id: run_id.to_string(),
+                    state: "running".into(),
+                    iteration: None,
+                    frame_size: None,
+                    trial_rate_pct: None,
+                    trial_remaining_secs: duration,
+                    progress: None,
+                    message: Some(format!(
+                        "{} · ramping to {target_cps:.0} connections/s over {warmup:.0}s",
+                        planned.profile.name
+                    )),
+                },
+            )
+            .await;
+
+        match duration {
+            Some(seconds) => {
+                let sleep = tokio::time::sleep(std::time::Duration::from_secs_f64(seconds));
+                tokio::select! {
+                    () = sleep => tracing::info!(%run_id, "load reached its configured duration"),
+                    () = cancel.cancelled() => tracing::info!(%run_id, "load cancelled"),
+                }
+            }
+            None => cancel.cancelled().await,
+        }
+
+        self.transition(run_id, RunState::Analyzing, None).await;
+
+        // Stop before reading, so the counters cannot move underneath the read.
+        engine.stop_astf().await.map_err(|e| format!("stopping the load: {e}"))?;
+
+        let stats =
+            engine.astf_stats().await.map_err(|e| format!("reading final statistics: {e}"))?;
+
+        let params = json!({
+            "profileId": planned.profile.id,
+            "profileName": planned.profile.name,
+            "targetCps": target_cps,
+            "maxConcurrent": planned.config.max_concurrent,
+            "warmupSecs": warmup,
+            "app": planned.config.app,
+        });
+        let metrics = json!({
+            "attempted": stats.attempted,
+            "established": stats.established,
+            "closed": stats.closed,
+            "active": stats.active,
+            "connectErrors": stats.connect_errors,
+            "resets": stats.resets,
+            "failurePct": stats.failure_pct(),
+            "txBytes": stats.tx_bytes,
+            "rxBytes": stats.rx_bytes,
+        });
+
+        store::runs::add_result(
+            self.store.pool(),
+            run_id,
+            0,
+            None,
+            &params,
+            &metrics,
+            // A load test records what happened; it carries no pass criterion of
+            // its own beyond the connection failures already in the metrics.
+            stats.connect_errors == 0,
+        )
+        .await
+        .map_err(|e| format!("recording results: {e}"))?;
 
         Ok(())
     }
@@ -704,6 +903,8 @@ pub struct RunPlan {
     pub rfc2544: Option<Rfc2544Config>,
     /// The flows to drive, with their parsed configuration.
     pub flows: Vec<PlannedFlow>,
+    /// The load profiles to drive, with their parsed configuration.
+    pub profiles: Vec<PlannedProfile>,
     /// Engine port index paired with the database row it came from.
     pub ports: Vec<(EnginePortId, Port)>,
     /// Maps a database port id onto its engine port number.
@@ -718,6 +919,14 @@ pub struct PlannedFlow {
     pub flow: Flow,
     /// Its deserialised configuration.
     pub config: FlowConfig,
+}
+
+/// One load profile with its parsed configuration.
+pub struct PlannedProfile {
+    /// The stored row.
+    pub profile: LoadProfile,
+    /// Its deserialised configuration.
+    pub config: LoadProfileConfig,
 }
 
 #[cfg(test)]
@@ -756,6 +965,7 @@ mod tests {
             group_id: Id::new_v4(),
             test_type: TestType::Manual,
             rfc2544: None,
+            profiles: Vec::new(),
             flows: vec![PlannedFlow {
                 flow: Flow {
                     id: Id::new_v4(),

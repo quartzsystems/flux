@@ -57,12 +57,13 @@ pub struct Config {
     pub cookie_secure: bool,
     /// Password for the bootstrap admin account, when one must be created.
     pub bootstrap_admin_password: Option<String>,
+    /// Where an uploaded TLS certificate and key are stored.
+    pub tls_dir: PathBuf,
     /// Base URL of the local VictoriaMetrics instance.
     ///
     /// Parsed and validated from the start so a bad value in the systemd unit is
     /// caught on the boot that introduced it, rather than on the first test run
     /// after the collector lands in milestone 2.
-    #[allow(dead_code, reason = "read by the collector, which arrives in milestone 2")]
     pub victoria_metrics_url: String,
 }
 
@@ -122,6 +123,7 @@ impl Config {
             session_ttl: Duration::from_secs(session_ttl_hours * 3600),
             cookie_secure: env_flag("FLUX_COOKIE_SECURE", false),
             bootstrap_admin_password: std::env::var("FLUX_BOOTSTRAP_ADMIN_PASSWORD").ok(),
+            tls_dir: env_or("FLUX_TLS_DIR", "/etc/flux/tls").into(),
             victoria_metrics_url: env_or("FLUX_VM_URL", "http://127.0.0.1:8428"),
         })
     }
