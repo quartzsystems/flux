@@ -14,6 +14,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::flow::ModifierMode;
 use crate::types::EngineMode;
 
 /// Index of a port *within an engine instance*.
@@ -179,6 +180,66 @@ pub enum EngineError {
     Protocol(String),
 }
 
+// ---------------------------------------------------------------------------
+// Streams
+// ---------------------------------------------------------------------------
+
+/// One programmed stream, in an engine-agnostic form.
+///
+/// This sits deliberately between the flow document and TRex's stream schema.
+/// The orchestrator's translator produces it from a [`FlowConfig`], and each
+/// engine renders it into whatever its own protocol wants — TRex into JSON-RPC,
+/// the mock into a rate to simulate.
+///
+/// Passing engine-native JSON straight through would have been less code, but it
+/// would leave the mock unable to know what rate it was asked for, which is the
+/// one thing the mock exists to simulate.
+///
+/// [`FlowConfig`]: crate::flow::FlowConfig
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamSpec {
+    /// Packet group this stream's statistics are attributed to.
+    pub pg_id: PgId,
+    /// The frame as it goes on the wire, excluding the FCS the NIC appends.
+    pub packet: Vec<u8>,
+    /// On-wire frame length including FCS, for rate accounting.
+    pub wire_len: u32,
+    /// Frames per second at multiplier 1.0.
+    pub pps: f64,
+    /// Fields varied across generated frames, resolved to byte offsets.
+    #[serde(default)]
+    pub modifiers: Vec<StreamModifier>,
+    /// Whether frames carry a latency timestamp.
+    #[serde(default)]
+    pub latency: bool,
+    /// Stop after this many frames. `None` transmits until stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_packets: Option<u64>,
+}
+
+/// A field varied across a stream's frames, resolved to a concrete position.
+///
+/// The flow document names fields symbolically (`ipv4_src`); by the time a
+/// stream is programmed, the translator has turned that into an offset and a
+/// width, because that is what both engines actually apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamModifier {
+    /// Byte offset into the frame.
+    pub offset: u16,
+    /// Field width in bytes. One, two, or four.
+    pub width: u8,
+    /// How the value walks its range.
+    pub mode: ModifierMode,
+    /// First value in the range.
+    pub min: u64,
+    /// Last value in the range.
+    pub max: u64,
+    /// Distance between consecutive values.
+    pub step: u64,
+}
+
 /// Options controlling a traffic start.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -223,14 +284,10 @@ pub trait Engine: Send + Sync + 'static {
     async fn clear_streams(&self, port: EnginePortId) -> Result<(), EngineError>;
 
     /// Programs `streams` onto `port`.
-    ///
-    /// `streams` is the engine-native representation produced by
-    /// `orch::translate`; it stays opaque here so this crate need not model
-    /// TRex's stream schema.
     async fn add_streams(
         &self,
         port: EnginePortId,
-        streams: Vec<serde_json::Value>,
+        streams: Vec<StreamSpec>,
     ) -> Result<(), EngineError>;
 
     /// Starts transmitting on `ports`.

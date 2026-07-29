@@ -23,7 +23,9 @@
 //! name wrong. Keeping the record complete is worth the allow.
 
 use flux_core::port::PciAddr;
-use flux_core::types::{EngineMode, Id, LinkState, PortGroupState, PortMode, Role};
+use flux_core::types::{
+    EngineMode, Id, LinkState, PortGroupState, PortMode, Role, RunState, TestType,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use time::OffsetDateTime;
@@ -364,6 +366,138 @@ pub struct ReservationView {
     /// When the hold lapses.
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
+}
+
+// ---------------------------------------------------------------------------
+// Flows
+// ---------------------------------------------------------------------------
+
+/// A `flows` row.
+///
+/// `config` is stored as JSONB and deserialised into `flux_core::flow::FlowConfig`
+/// on use. It is kept as `Value` here so a row written by a newer version can be
+/// listed rather than making the whole page fail to load.
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Flow {
+    /// Primary key.
+    #[schema(value_type = String, format = Uuid)]
+    pub id: Id,
+    /// Operator-assigned label.
+    pub name: String,
+    /// Serialised `FlowConfig`.
+    pub config: serde_json::Value,
+    /// Who created it.
+    #[schema(value_type = Option<String>, format = Uuid)]
+    pub created_by: Option<Id>,
+    /// When it was created.
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    /// When it last changed.
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+/// A `tests` row.
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Test {
+    /// Primary key.
+    #[schema(value_type = String, format = Uuid)]
+    pub id: Id,
+    /// Operator-assigned label.
+    pub name: String,
+    /// Which kind of test this is.
+    #[sqlx(rename = "type", try_from = "String")]
+    #[serde(rename = "type")]
+    pub test_type: TestType,
+    /// Type-specific configuration.
+    pub config: serde_json::Value,
+    /// Flows this test drives, in order.
+    #[schema(value_type = Vec<String>)]
+    pub flow_ids: Vec<Id>,
+    /// Who created it.
+    #[schema(value_type = Option<String>, format = Uuid)]
+    pub created_by: Option<Id>,
+    /// When it was created.
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+    /// When it last changed.
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
+// ---------------------------------------------------------------------------
+// Runs
+// ---------------------------------------------------------------------------
+
+/// A `runs` row.
+///
+/// `test_name` and `type` are copied in rather than joined, so a run survives the
+/// deletion of the test that produced it. A result nobody can trace back to a
+/// configuration is worthless, which is also why `config_snapshot` exists.
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Run {
+    /// Primary key.
+    #[schema(value_type = String, format = Uuid)]
+    pub id: Id,
+    /// The test this run came from, if it still exists.
+    #[schema(value_type = Option<String>, format = Uuid)]
+    pub test_id: Option<Id>,
+    /// The test's name at the time the run started.
+    pub test_name: String,
+    /// The test's type.
+    #[sqlx(rename = "type")]
+    #[serde(rename = "type")]
+    pub test_type: String,
+    /// Where the run is in its lifecycle.
+    #[sqlx(try_from = "String")]
+    pub state: RunState,
+    /// Who started it.
+    #[schema(value_type = Option<String>, format = Uuid)]
+    pub started_by: Option<Id>,
+    /// When it started.
+    #[serde(with = "time::serde::rfc3339")]
+    pub started_at: OffsetDateTime,
+    /// When it reached a terminal state.
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub finished_at: Option<OffsetDateTime>,
+    /// Operator-supplied notes about the device under test.
+    pub dut_meta: serde_json::Value,
+    /// The complete resolved configuration at the moment the run started.
+    pub config_snapshot: serde_json::Value,
+    /// Why the run failed, when it did.
+    pub error: Option<String>,
+}
+
+/// A `run_results` row: one trial.
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RunResult {
+    /// Primary key.
+    #[schema(value_type = String, format = Uuid)]
+    pub id: Id,
+    /// Owning run.
+    #[schema(value_type = String, format = Uuid)]
+    pub run_id: Id,
+    /// Trial number within the run.
+    pub iteration: i32,
+    /// Frame size this trial used, when the test varies it.
+    pub frame_size: Option<i32>,
+    /// Trial inputs.
+    pub params: serde_json::Value,
+    /// Trial outputs.
+    pub metrics: serde_json::Value,
+    /// Whether this trial established the reported result for its frame size.
+    pub passed: bool,
+    /// When the trial was recorded.
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 // ---------------------------------------------------------------------------

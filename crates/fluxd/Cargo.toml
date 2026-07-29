@@ -48,7 +48,28 @@ hex = "0.4"
 utoipa = { version = "5", features = ["axum_extras", "uuid", "time"] }
 sysinfo = "0.33"
 mime_guess = "2"
+base64 = "0.22"
+serde_yaml = "0.9"
+futures-util = "0.3"
+tokio-util = "0.7"
+
+# VictoriaMetrics runs on loopback and speaks plain HTTP, so no TLS backend is
+# linked. That keeps the appliance image free of a second TLS stack.
+reqwest = { version = "0.12", default-features = false }
+
+# ZeroMQ transport to TRex.
+#
+# This is `zeromq` (a pure-Rust implementation) rather than the `zmq` bindings.
+# `zmq` links libzmq, which on a machine without it must be built from source by
+# cmake — making `cargo build` fail anywhere the C toolchain is absent, including
+# CI and any developer box that only wants to work on the API. The protocol on
+# the wire is identical, and the choice is isolated behind `engine::trex::transport`.
+zeromq = { version = "0.6", default-features = false, features = [
+  "tokio-runtime",
+  "tcp-transport",
+] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+serde_urlencoded = "0.7"

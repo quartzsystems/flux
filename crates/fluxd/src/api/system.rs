@@ -61,6 +61,12 @@ pub struct Health {
     pub memory_total_bytes: u64,
     /// Physical memory not in use, in bytes.
     pub memory_available_bytes: u64,
+    /// How many engine instances are running.
+    pub engine_instances: usize,
+    /// How many engine instances are being polled for statistics.
+    pub collectors_active: usize,
+    /// How many runs are in flight.
+    pub active_runs: usize,
 }
 
 /// One dependency's status.
@@ -132,15 +138,7 @@ async fn health(State(state): State<AppState>, _auth: Auth) -> ApiResult<Json<He
         Err(err) => (SubsystemHealth::failed(portd_backend, err.to_string()), None),
     };
 
-    // Milestone 1 has no engine instances yet. The mock backend is reported ready
-    // because it always is; the real backend reports what it is, not a guess.
-    let engine = match state.config.engine {
-        EngineBackend::Mock => SubsystemHealth::ok("mock"),
-        EngineBackend::Trex => SubsystemHealth::failed(
-            "trex",
-            "no engine instances are running; start a port group",
-        ),
-    };
+    let engine = engine_health(&state).await;
 
     let counts = port_counts(&state).await?;
     let (disks, memory_total_bytes, memory_available_bytes) = host_resources();
@@ -163,7 +161,66 @@ async fn health(State(state): State<AppState>, _auth: Auth) -> ApiResult<Json<He
         disks,
         memory_total_bytes,
         memory_available_bytes,
+        engine_instances: state.engines.len().await,
+        collectors_active: state.collector.active_count().await,
+        active_runs: state.runs.active().await.len(),
     }))
+}
+
+/// Summarises the running engine instances.
+///
+/// No instances is not a failure: engines are launched on demand when a run
+/// starts, so an idle appliance legitimately has none. Reporting that as
+/// degraded would make the dashboard cry wolf on every quiet appliance.
+async fn engine_health(state: &AppState) -> SubsystemHealth {
+    let backend = match state.config.engine {
+        EngineBackend::Mock => "mock",
+        EngineBackend::Trex => "trex",
+    };
+
+    let instances = state.engines.all().await;
+    if instances.is_empty() {
+        return SubsystemHealth {
+            backend: backend.to_string(),
+            ok: true,
+            detail: Some("no engine instances running".into()),
+        };
+    }
+
+    let mut versions: Vec<String> = Vec::new();
+    let mut problems = Vec::new();
+
+    for handle in &instances {
+        match handle.state() {
+            crate::engine::EngineState::Ready => {
+                // Ask the instance itself rather than trusting the cached state:
+                // an engine that died since its last command still reads Ready
+                // until something tries to talk to it.
+                match handle.health().await {
+                    Ok(health) => {
+                        versions.push(health.version.unwrap_or_else(|| "unknown".into()));
+                    }
+                    Err(err) => {
+                        problems.push(format!("group {}: {err}", handle.group_id));
+                    }
+                }
+            }
+            other => problems.push(format!("group {}: {other:?}", handle.group_id)),
+        }
+    }
+
+    versions.sort();
+    versions.dedup();
+
+    SubsystemHealth {
+        backend: backend.to_string(),
+        ok: problems.is_empty(),
+        detail: Some(if problems.is_empty() {
+            format!("{} instance(s) ready, {}", instances.len(), versions.join(", "))
+        } else {
+            problems.join("; ")
+        }),
+    }
 }
 
 /// Tallies present ports by link state.

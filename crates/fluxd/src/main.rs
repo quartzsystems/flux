@@ -5,23 +5,31 @@
 //! unprivileged, delegating the two things that need root — NIC binding and
 //! hugepage allocation — to `flux-portd` over a unix socket.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use flux_core::port::PortController;
+use tokio::sync::RwLock;
 
 mod api;
 mod auth;
 mod bootstrap;
+mod collector;
 mod config;
+mod engine;
+mod orch;
 mod portmgr;
 mod state;
 mod store;
 
+use collector::Collector;
 use config::{Config, PortdBackend};
+use engine::EngineRegistry;
+use orch::RunSupervisor;
 use portmgr::{MockPortController, PortManager, UnixPortdClient};
-use state::AppState;
+use state::{AppState, MockControlRegistry};
 use store::Store;
 
 /// How often expired sessions and lapsed reservations are swept away.
@@ -50,6 +58,16 @@ async fn main() -> anyhow::Result<()> {
     store.migrate().await?;
     bootstrap::ensure_admin_account(&store, &config).await?;
 
+    // A run that was in flight when the daemon stopped has no engine state left
+    // to resume from. Failing it with a reason is the honest outcome; leaving it
+    // `running` forever would make the dashboard lie about what the appliance is
+    // doing.
+    match store::runs::fail_interrupted(store.pool(), "daemon_restart").await {
+        Ok(0) => {}
+        Ok(n) => tracing::warn!(count = n, "failed runs that were interrupted by a restart"),
+        Err(err) => tracing::error!(%err, "could not sweep interrupted runs"),
+    }
+
     let controller: Arc<dyn PortController> = match config.portd {
         PortdBackend::Mock => Arc::new(MockPortController::new()),
         PortdBackend::Unix => Arc::new(UnixPortdClient::new(&config.portd_socket)),
@@ -63,7 +81,36 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!(%err, "could not read the port inventory at startup");
     }
 
-    let state = AppState::new(store.clone(), ports, Arc::clone(&config));
+    // Time series are a convenience, not a dependency: a VictoriaMetrics that is
+    // not up yet must not stop the appliance from running tests.
+    let metrics = match collector::vm::MetricsWriter::new(&config.victoria_metrics_url) {
+        Ok(writer) => Some(writer),
+        Err(err) => {
+            tracing::warn!(%err, "time series will not be recorded");
+            None
+        }
+    };
+
+    let engines = EngineRegistry::new();
+    let stats = Collector::new(metrics);
+    let mock_controls: MockControlRegistry = Arc::new(RwLock::new(HashMap::new()));
+    let runs = RunSupervisor::new(
+        store.clone(),
+        engines.clone(),
+        stats.clone(),
+        Arc::clone(&config),
+        Arc::clone(&mock_controls),
+    );
+
+    let state = AppState::new(
+        store.clone(),
+        ports,
+        engines.clone(),
+        stats.clone(),
+        runs.clone(),
+        mock_controls,
+        Arc::clone(&config),
+    );
     tokio::spawn(janitor(store));
 
     let listener = tokio::net::TcpListener::bind(config.bind)
@@ -75,6 +122,14 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("running the HTTP server")?;
+
+    // Order matters on the way out: stop the runs so they unwind and stop
+    // traffic themselves, then stop collecting, then take the engines down.
+    // Reversing it would leave an engine transmitting with nobody watching.
+    tracing::info!("stopping active runs");
+    runs.stop_all().await;
+    stats.stop_all().await;
+    engines.shutdown_all().await;
 
     tracing::info!("fluxd stopped");
     Ok(())

@@ -15,31 +15,49 @@ use tower_http::trace::TraceLayer;
 use crate::state::AppState;
 
 pub mod auth;
+pub mod debug;
 pub mod error;
 pub mod extract;
+pub mod flows;
 pub mod middleware;
 pub mod openapi;
 pub mod port_groups;
 pub mod ports;
+pub mod runs;
 pub mod spa;
 pub mod system;
+pub mod tests;
 pub mod users;
+pub mod ws;
 
 /// Builds the complete application router.
 pub fn router(state: AppState) -> Router {
     let web_root = state.config.web_root.clone();
+    let mocked = state.config.engine == crate::config::EngineBackend::Mock;
 
-    let api = Router::new()
+    let mut api = Router::new()
         .nest("/auth", auth::router())
         .nest("/ports", ports::router())
         .nest("/port-groups", port_groups::router())
+        .nest("/flows", flows::router())
+        .nest("/tests", tests::router())
+        .nest("/runs", runs::router())
         .nest("/users", users::router())
         .nest("/system", system::router())
         .nest("/settings", system::settings_router())
-        .route("/openapi.json", get(openapi::document))
-        // Anything under /api/v1 that does not match is a client error worth
-        // naming, not a request for the UI shell.
-        .fallback(unknown_endpoint);
+        .nest("/stream", ws::router())
+        .route("/openapi.json", get(openapi::document));
+
+    // The debug router is not mounted at all on a real appliance, so an
+    // operator cannot discover endpoints that would only ever refuse them.
+    if mocked {
+        tracing::warn!("mounting /api/v1/debug — simulated engine controls are reachable");
+        api = api.nest("/debug", debug::router());
+    }
+
+    // Anything under /api/v1 that does not match is a client error worth
+    // naming, not a request for the UI shell.
+    let api = api.fallback(unknown_endpoint);
 
     Router::new()
         .nest("/api/v1", api)

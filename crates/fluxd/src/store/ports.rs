@@ -60,6 +60,27 @@ pub async fn get(pool: &PgPool, id: Id) -> sqlx::Result<Option<Port>> {
         .await
 }
 
+/// Several ports by primary key, in the order requested.
+///
+/// The caller's order is the engine's port numbering, so it has to survive the
+/// round trip rather than being whatever Postgres finds convenient.
+pub async fn get_many_ordered(pool: &PgPool, ids: &[Id]) -> sqlx::Result<Vec<Port>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query_as::<_, Port>(&format!(
+        "SELECT {COLUMNS} FROM ports WHERE id = ANY($1)"
+    ))
+    .bind(ids)
+    .fetch_all(pool)
+    .await?;
+
+    let mut by_id: std::collections::HashMap<Id, Port> =
+        rows.into_iter().map(|p| (p.id, p)).collect();
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
 /// Renames a port.
 pub async fn rename(pool: &PgPool, id: Id, name: &str) -> sqlx::Result<Option<Port>> {
     sqlx::query_as::<_, Port>(&format!(

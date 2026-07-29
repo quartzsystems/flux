@@ -1,16 +1,30 @@
 //! Shared application state.
 //!
-//! Everything here is cheap to clone — the pool and the port manager are
-//! internally reference-counted — so axum's `State` extractor hands handlers a
-//! clone per request rather than contending on a lock.
+//! Everything here is cheap to clone — pools, registries, and channel senders
+//! are internally reference-counted — so axum's `State` extractor hands handlers
+//! a clone per request rather than contending on a lock.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use flux_core::types::Id;
 use time::OffsetDateTime;
+use tokio::sync::RwLock;
 
+use crate::collector::Collector;
 use crate::config::Config;
+use crate::engine::mock::MockControls;
+use crate::engine::EngineRegistry;
+use crate::orch::RunSupervisor;
 use crate::portmgr::PortManager;
 use crate::store::Store;
+
+/// Injectable behaviour for simulated engines, keyed by port group.
+///
+/// Only populated when `FLUX_ENGINE=mock`. Kept beside the registry rather than
+/// inside the engine handle because it is a development affordance, not part of
+/// the engine contract — a real TRex has nothing to put here.
+pub type MockControlRegistry = Arc<RwLock<HashMap<Id, MockControls>>>;
 
 /// State every handler can reach.
 #[derive(Clone)]
@@ -19,6 +33,14 @@ pub struct AppState {
     pub store: Store,
     /// Hardware inventory and driver binding.
     pub ports: PortManager,
+    /// Running engine instances.
+    pub engines: EngineRegistry,
+    /// Statistics polling and fan-out.
+    pub collector: Collector,
+    /// In-flight runs.
+    pub runs: RunSupervisor,
+    /// Mock engine knobs, for the debug endpoints.
+    pub mock_controls: MockControlRegistry,
     /// Immutable daemon configuration.
     pub config: Arc<Config>,
     /// When the daemon started, for the uptime figure on the dashboard.
@@ -27,8 +49,25 @@ pub struct AppState {
 
 impl AppState {
     /// Assembles the state.
-    pub fn new(store: Store, ports: PortManager, config: Arc<Config>) -> Self {
-        Self { store, ports, config, started_at: OffsetDateTime::now_utc() }
+    pub fn new(
+        store: Store,
+        ports: PortManager,
+        engines: EngineRegistry,
+        collector: Collector,
+        runs: RunSupervisor,
+        mock_controls: MockControlRegistry,
+        config: Arc<Config>,
+    ) -> Self {
+        Self {
+            store,
+            ports,
+            engines,
+            collector,
+            runs,
+            mock_controls,
+            config,
+            started_at: OffsetDateTime::now_utc(),
+        }
     }
 
     /// Seconds since the daemon started.

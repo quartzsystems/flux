@@ -24,12 +24,15 @@ use std::time::Duration;
 use anyhow::Context;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
+pub mod flows;
 pub mod models;
 pub mod port_groups;
 pub mod ports;
 pub mod reservations;
+pub mod runs;
 pub mod sessions;
 pub mod settings;
+pub mod tests;
 pub mod users;
 
 /// Embedded migrations, applied on every daemon start.

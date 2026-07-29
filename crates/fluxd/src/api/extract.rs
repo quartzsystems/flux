@@ -94,6 +94,27 @@ impl<T: Serialize> IntoResponse for Json<T> {
     }
 }
 
+impl<T, S> axum::extract::OptionalFromRequest<S> for Json<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    /// Lets a handler take `Option<Json<T>>` for a genuinely optional body.
+    ///
+    /// A request with no `Content-Type` is treated as having no body at all,
+    /// which is what a `POST` with nothing in it looks like — an operator
+    /// pressing "run" sends exactly that. A body that *is* present still has to
+    /// parse, so a malformed one is an error rather than being silently ignored.
+    async fn from_request(req: Request, state: &S) -> Result<Option<Self>, Self::Rejection> {
+        if req.headers().get(axum::http::header::CONTENT_TYPE).is_none() {
+            return Ok(None);
+        }
+        <Json<T> as FromRequest<S>>::from_request(req, state).await.map(Some)
+    }
+}
+
 impl<T, S> FromRequest<S> for Json<T>
 where
     T: DeserializeOwned,
