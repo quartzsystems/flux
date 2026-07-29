@@ -1,0 +1,8 @@
+# The house style is denser than rustfmt's default: a small struct literal or
+# call that fits on one line stays on one line, because a four-line `Foo { a, b }`
+# costs more to read than it saves.
+use_small_heuristics = "Max"
+
+# Explicit rather than inherited, so the width does not move under the codebase
+# when a toolchain changes its default.
+max_width = 100

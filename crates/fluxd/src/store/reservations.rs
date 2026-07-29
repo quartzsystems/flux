@@ -54,12 +54,7 @@ pub async fn reserve(
 ///
 /// A viewer or operator may only release their own; an admin may release
 /// anyone's, which is the escape hatch for a colleague who left for the weekend.
-pub async fn release(
-    pool: &PgPool,
-    port_id: Id,
-    user_id: Id,
-    role: Role,
-) -> sqlx::Result<bool> {
+pub async fn release(pool: &PgPool, port_id: Id, user_id: Id, role: Role) -> sqlx::Result<bool> {
     let result = sqlx::query(
         "DELETE FROM reservations
          WHERE port_id = $1 AND ($3 OR user_id = $2)",

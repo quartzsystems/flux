@@ -214,10 +214,8 @@ async fn session(socket: WebSocket, state: AppState) {
                 }
 
                 let backfill = state.collector.backfill().await;
-                let matching: Vec<Arc<StatsBatch>> = backfill
-                    .iter()
-                    .filter_map(|b| filter.apply(b).map(Arc::new))
-                    .collect();
+                let matching: Vec<Arc<StatsBatch>> =
+                    backfill.iter().filter_map(|b| filter.apply(b).map(Arc::new)).collect();
 
                 send_control(
                     &mut sink,
@@ -439,10 +437,8 @@ mod tests {
 
     #[test]
     fn a_subscription_message_parses_from_the_documented_shape() {
-        let request: Subscribe = serde_json::from_str(
-            r#"{"subscribe":["port:*","stream:run:abc","run:abc"]}"#,
-        )
-        .unwrap();
+        let request: Subscribe =
+            serde_json::from_str(r#"{"subscribe":["port:*","stream:run:abc","run:abc"]}"#).unwrap();
         assert_eq!(request.subscribe.len(), 3);
 
         let f = Filter::parse(&request.subscribe);

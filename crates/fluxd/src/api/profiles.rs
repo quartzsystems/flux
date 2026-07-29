@@ -247,8 +247,7 @@ fn format_bitrate(bps: f64) -> String {
 async fn check_ports(state: &AppState, config: &LoadProfileConfig) -> ApiResult<()> {
     let mut errors = Vec::new();
 
-    for (field, port_id) in
-        [("clientPort", config.client_port), ("serverPort", config.server_port)]
+    for (field, port_id) in [("clientPort", config.client_port), ("serverPort", config.server_port)]
     {
         if ports::get(state.store.pool(), port_id).await?.is_none() {
             errors.push(flux_core::config::FieldError::new(

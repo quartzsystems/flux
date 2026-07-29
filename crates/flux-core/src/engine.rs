@@ -22,7 +22,9 @@ use crate::types::EngineMode;
 /// TRex numbers the ports it owns from zero in the order they appear in its
 /// config file. This is deliberately not the database port id: the mapping
 /// between the two lives in the port group.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
 #[serde(transparent)]
 pub struct EnginePortId(pub u8);
 
@@ -36,7 +38,9 @@ impl std::fmt::Display for EnginePortId {
 ///
 /// TRex tracks flow statistics per pgid; the orchestrator allocates one per
 /// stream so tx/rx/loss can be reconciled per flow rather than per port.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
 #[serde(transparent)]
 pub struct PgId(pub u32);
 
@@ -382,8 +386,7 @@ pub trait Engine: Send + Sync + 'static {
     async fn clear_stats(&self, ports: &[EnginePortId]) -> Result<(), EngineError>;
 
     /// Reads cumulative counters for `ports`, in the order requested.
-    async fn port_stats(&self, ports: &[EnginePortId])
-        -> Result<Vec<PortStats>, EngineError>;
+    async fn port_stats(&self, ports: &[EnginePortId]) -> Result<Vec<PortStats>, EngineError>;
 
     /// Reads per-packet-group counters for `pgids`, in the order requested.
     async fn pgid_stats(&self, pgids: &[PgId]) -> Result<Vec<PgidStats>, EngineError>;

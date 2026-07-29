@@ -37,8 +37,8 @@ impl Allowlist {
     /// silently starting with "refuse everything" would look like a hardware
     /// fault to the operator and send them debugging the wrong thing.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let file: AllowlistFile =
             serde_yaml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
 

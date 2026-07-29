@@ -159,12 +159,7 @@ mod tests {
 
     /// An identity at `role`.
     fn who(role: Role) -> Identity {
-        Identity {
-            session_id: Id::nil(),
-            user_id: Id::nil(),
-            username: role.to_string(),
-            role,
-        }
+        Identity { session_id: Id::nil(), user_id: Id::nil(), username: role.to_string(), role }
     }
 
     #[test]

@@ -19,10 +19,7 @@ use crate::store::{sessions, users};
 
 /// Mounts the authentication routes.
 pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/login", post(login))
-        .route("/logout", post(logout))
-        .route("/me", get(me))
+    Router::new().route("/login", post(login)).route("/logout", post(logout)).route("/me", get(me))
 }
 
 /// Login request body.
@@ -93,10 +90,7 @@ async fn login(
     tracing::info!(user_id = %user.id, %session_id, role = %user.role, "login succeeded");
 
     let jar = jar.add(session_cookie(&state, token, expires_at));
-    Ok((
-        jar,
-        axum::Json(MeResponse { id: user.id, username: user.username, role: user.role }),
-    ))
+    Ok((jar, axum::Json(MeResponse { id: user.id, username: user.username, role: user.role })))
 }
 
 /// Ends the current session.
@@ -136,11 +130,7 @@ async fn me(Auth(identity): Auth) -> ApiResult<axum::Json<MeResponse>> {
 /// `HttpOnly` keeps the token out of reach of any script on the page, and
 /// `SameSite=Strict` means a cross-site request cannot carry it — which for an
 /// API whose endpoints start traffic is the CSRF defence.
-fn session_cookie(
-    state: &AppState,
-    token: String,
-    expires_at: OffsetDateTime,
-) -> Cookie<'static> {
+fn session_cookie(state: &AppState, token: String, expires_at: OffsetDateTime) -> Cookie<'static> {
     let mut cookie = Cookie::new(auth::SESSION_COOKIE, token);
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Strict);

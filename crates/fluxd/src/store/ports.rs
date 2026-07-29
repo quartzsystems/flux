@@ -69,12 +69,11 @@ pub async fn get_many_ordered(pool: &PgPool, ids: &[Id]) -> sqlx::Result<Vec<Por
         return Ok(Vec::new());
     }
 
-    let rows = sqlx::query_as::<_, Port>(&format!(
-        "SELECT {COLUMNS} FROM ports WHERE id = ANY($1)"
-    ))
-    .bind(ids)
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query_as::<_, Port>(&format!("SELECT {COLUMNS} FROM ports WHERE id = ANY($1)"))
+            .bind(ids)
+            .fetch_all(pool)
+            .await?;
 
     let mut by_id: std::collections::HashMap<Id, Port> =
         rows.into_iter().map(|p| (p.id, p)).collect();
@@ -185,10 +184,7 @@ fn default_name(nic: &NicInfo) -> String {
         Some(name) if !name.is_empty() => name.clone(),
         _ => format!(
             "p{}",
-            nic.pci_addr
-                .as_str()
-                .trim_start_matches("0000:")
-                .replace([':', '.'], "-")
+            nic.pci_addr.as_str().trim_start_matches("0000:").replace([':', '.'], "-")
         ),
     }
 }

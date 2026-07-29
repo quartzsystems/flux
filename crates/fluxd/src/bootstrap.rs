@@ -30,9 +30,8 @@ pub async fn ensure_admin_account(store: &Store, config: &Config) -> anyhow::Res
         None => (generate_passphrase(), true),
     };
 
-    auth::check_password_policy(&password).context(
-        "FLUX_BOOTSTRAP_ADMIN_PASSWORD does not meet the password policy",
-    )?;
+    auth::check_password_policy(&password)
+        .context("FLUX_BOOTSTRAP_ADMIN_PASSWORD does not meet the password policy")?;
 
     let hash = auth::hash_password(&password).context("hashing the bootstrap password")?;
     let user = users::create(store.pool(), BOOTSTRAP_USERNAME, &hash, Role::Admin)

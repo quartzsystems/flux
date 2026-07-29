@@ -531,7 +531,9 @@ impl FrameSize {
     pub fn min_bytes(&self) -> u32 {
         match self {
             FrameSize::Fixed { bytes } => *bytes,
-            FrameSize::Imix { preset } => preset.entries().iter().map(|e| e.bytes).min().unwrap_or(0),
+            FrameSize::Imix { preset } => {
+                preset.entries().iter().map(|e| e.bytes).min().unwrap_or(0)
+            }
             FrameSize::Random { min, .. } => *min,
         }
     }
@@ -540,7 +542,9 @@ impl FrameSize {
     pub fn max_bytes(&self) -> u32 {
         match self {
             FrameSize::Fixed { bytes } => *bytes,
-            FrameSize::Imix { preset } => preset.entries().iter().map(|e| e.bytes).max().unwrap_or(0),
+            FrameSize::Imix { preset } => {
+                preset.entries().iter().map(|e| e.bytes).max().unwrap_or(0)
+            }
             FrameSize::Random { max, .. } => *max,
         }
     }
@@ -890,10 +894,8 @@ mod tests {
     #[test]
     fn header_field_errors_carry_their_layer_index() {
         let mut flow = sample_flow();
-        flow.headers[1] = HeaderLayer::Ipv4(Ipv4Fields {
-            src: "not-an-address".into(),
-            ..Default::default()
-        });
+        flow.headers[1] =
+            HeaderLayer::Ipv4(Ipv4Fields { src: "not-an-address".into(), ..Default::default() });
         let errs = flow.validate().unwrap_err();
         assert!(
             errs.iter().any(|e| e.path == "headers.1.src"),

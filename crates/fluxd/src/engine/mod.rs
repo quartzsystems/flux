@@ -197,10 +197,7 @@ impl EngineHandle {
     }
 
     /// Reads cumulative per-port counters.
-    pub async fn port_stats(
-        &self,
-        ports: &[EnginePortId],
-    ) -> Result<Vec<PortStats>, EngineError> {
+    pub async fn port_stats(&self, ports: &[EnginePortId]) -> Result<Vec<PortStats>, EngineError> {
         self.call(|tx| Command::PortStats(ports.to_vec(), tx)).await
     }
 
@@ -371,7 +368,8 @@ impl EngineRegistry {
 
     /// Stops every instance. Called on daemon shutdown.
     pub async fn shutdown_all(&self) {
-        let handles: Vec<EngineHandle> = self.instances.write().await.drain().map(|(_, h)| h).collect();
+        let handles: Vec<EngineHandle> =
+            self.instances.write().await.drain().map(|(_, h)| h).collect();
         for handle in handles {
             handle.shutdown().await;
         }
@@ -465,18 +463,11 @@ mod tests {
         let registry = EngineRegistry::new();
         let group_id = Id::new_v4();
 
-        let first = EngineHandle::spawn(
-            group_id,
-            2,
-            Box::new(MockEngine::new(EngineMode::Stl, 2)),
-        );
+        let first = EngineHandle::spawn(group_id, 2, Box::new(MockEngine::new(EngineMode::Stl, 2)));
         registry.insert(first).await;
 
-        let second = EngineHandle::spawn(
-            group_id,
-            4,
-            Box::new(MockEngine::new(EngineMode::Stl, 4)),
-        );
+        let second =
+            EngineHandle::spawn(group_id, 4, Box::new(MockEngine::new(EngineMode::Stl, 4)));
         registry.insert(second).await;
 
         assert_eq!(registry.len().await, 1);

@@ -61,11 +61,8 @@ pub fn to_streams(
         // Split the flow's packet rate across components by weight. Rate is
         // apportioned in packets, not bits, because that is what the operator's
         // "N pps" means and what the mixture weights describe.
-        let share = if total_weight > 0.0 {
-            f64::from(component.weight) / total_weight
-        } else {
-            0.0
-        };
+        let share =
+            if total_weight > 0.0 { f64::from(component.weight) / total_weight } else { 0.0 };
 
         streams.push(StreamSpec {
             // Components of one flow share consecutive ids so per-flow
@@ -107,10 +104,7 @@ fn components_of(size: &FrameSize) -> Vec<Component> {
             if min == max {
                 vec![Component { bytes: *min, weight: 1 }]
             } else {
-                vec![
-                    Component { bytes: *min, weight: 1 },
-                    Component { bytes: *max, weight: 1 },
-                ]
+                vec![Component { bytes: *min, weight: 1 }, Component { bytes: *max, weight: 1 }]
             }
         }
     }
@@ -169,10 +163,8 @@ fn resolve_offsets(flow: &FlowConfig) -> Result<Vec<StreamModifier>, TranslateEr
     let mut out = Vec::with_capacity(flow.modifiers.len());
 
     for (index, modifier) in flow.modifiers.iter().enumerate() {
-        let resolved = resolve_one(flow, modifier, &layers).ok_or(TranslateError::NoSuchField {
-            index,
-            field: modifier.field.as_str(),
-        })?;
+        let resolved = resolve_one(flow, modifier, &layers)
+            .ok_or(TranslateError::NoSuchField { index, field: modifier.field.as_str() })?;
         out.push(resolved);
     }
 
@@ -291,10 +283,7 @@ mod tests {
 
         let streams = to_streams(&flow, PgId(10), 10_000).unwrap();
         assert_eq!(streams.len(), 3);
-        assert_eq!(
-            streams.iter().map(|s| s.wire_len).collect::<Vec<_>>(),
-            vec![64, 570, 1518]
-        );
+        assert_eq!(streams.iter().map(|s| s.wire_len).collect::<Vec<_>>(), vec![64, 570, 1518]);
 
         // Consecutive packet groups, so per-flow statistics can be summed back.
         assert_eq!(streams.iter().map(|s| s.pg_id.0).collect::<Vec<_>>(), vec![10, 11, 12]);
@@ -342,10 +331,8 @@ mod tests {
     #[test]
     fn a_modifier_starts_from_the_configured_value_not_from_zero() {
         let mut flow = sample();
-        flow.headers[1] = HeaderLayer::Ipv4(Ipv4Fields {
-            src: "10.1.2.100".into(),
-            ..Default::default()
-        });
+        flow.headers[1] =
+            HeaderLayer::Ipv4(Ipv4Fields { src: "10.1.2.100".into(), ..Default::default() });
         flow.modifiers = vec![Modifier {
             field: ModifierField::Ipv4Src,
             mode: ModifierMode::Increment,
@@ -415,8 +402,14 @@ mod tests {
     #[test]
     fn a_qinq_vlan_modifier_targets_the_inner_customer_tag() {
         let mut flow = sample();
-        flow.headers.insert(1, HeaderLayer::Vlan(VlanFields { id: 10, tpid: 0x88a8, ..Default::default() }));
-        flow.headers.insert(2, HeaderLayer::Vlan(VlanFields { id: 20, tpid: 0x8100, ..Default::default() }));
+        flow.headers.insert(
+            1,
+            HeaderLayer::Vlan(VlanFields { id: 10, tpid: 0x88a8, ..Default::default() }),
+        );
+        flow.headers.insert(
+            2,
+            HeaderLayer::Vlan(VlanFields { id: 20, tpid: 0x8100, ..Default::default() }),
+        );
         flow.size = FrameSize::Fixed { bytes: 72 };
         flow.modifiers = vec![Modifier {
             field: ModifierField::VlanId,
@@ -552,12 +545,8 @@ mod tests {
             ModifierField::L4SrcPort,
             ModifierField::L4DstPort,
         ] {
-            flow.modifiers = vec![Modifier {
-                field,
-                mode: ModifierMode::Increment,
-                count: 4,
-                step: 1,
-            }];
+            flow.modifiers =
+                vec![Modifier { field, mode: ModifierMode::Increment, count: 4, step: 1 }];
             let m = to_streams(&flow, PgId(1), 10_000).unwrap()[0].modifiers[0];
             assert!(
                 matches!(m.width, 1 | 2 | 4 | 8),

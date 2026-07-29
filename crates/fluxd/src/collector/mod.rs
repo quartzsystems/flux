@@ -338,12 +338,8 @@ async fn poll_loop(collector: Collector, target: CollectionTarget) {
         };
 
         let now = Instant::now();
-        let current = Previous {
-            at: now,
-            ports: port_stats.clone(),
-            pgids: pgid_stats.clone(),
-            connections,
-        };
+        let current =
+            Previous { at: now, ports: port_stats.clone(), pgids: pgid_stats.clone(), connections };
 
         if let Some(prev) = &previous {
             let elapsed = now.duration_since(prev.at).as_secs_f64();
@@ -417,9 +413,9 @@ async fn build_batch(
         None => None,
     };
 
-    let connections = target.stateful.then(|| {
-        connection_sample(previous.connections, current.connections, elapsed)
-    });
+    let connections = target
+        .stateful
+        .then(|| connection_sample(previous.connections, current.connections, elapsed));
 
     StatsBatch { ts: unix_now(), ports, streams, run, connections }
 }
@@ -687,8 +683,13 @@ mod tests {
         let mut ports = BTreeMap::new();
         ports.insert("p1".to_string(), PortSample { tx_pps: 1000.0, ..Default::default() });
 
-        let batch =
-            StatsBatch { ts: 1712345678, ports, streams: BTreeMap::new(), run: None, connections: None };
+        let batch = StatsBatch {
+            ts: 1712345678,
+            ports,
+            streams: BTreeMap::new(),
+            run: None,
+            connections: None,
+        };
         let json = serde_json::to_value(&batch).unwrap();
 
         assert_eq!(json["ts"], 1712345678i64);

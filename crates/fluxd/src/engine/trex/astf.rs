@@ -155,10 +155,7 @@ fn address_range(cidr: &str) -> (String, String) {
         (network, network + (size as u32) - 1)
     };
 
-    (
-        std::net::Ipv4Addr::from(first).to_string(),
-        std::net::Ipv4Addr::from(last).to_string(),
-    )
+    (std::net::Ipv4Addr::from(first).to_string(), std::net::Ipv4Addr::from(last).to_string())
 }
 
 /// Splits a CIDR into its base address and prefix length.

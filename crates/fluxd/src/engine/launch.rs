@@ -145,10 +145,7 @@ fn write_platform_config(request: &LaunchRequest) -> Result<PathBuf, EngineError
 /// A freshly spawned TRex refuses connections for tens of seconds while it binds
 /// NICs. Retrying with a deadline turns that into a wait rather than an
 /// immediate, confusing failure.
-async fn wait_for_rpc(
-    request: &LaunchRequest,
-    port_count: u8,
-) -> Result<TrexEngine, EngineError> {
+async fn wait_for_rpc(request: &LaunchRequest, port_count: u8) -> Result<TrexEngine, EngineError> {
     let deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
     let mut last: Option<EngineError> = None;
 

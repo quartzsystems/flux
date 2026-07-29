@@ -162,9 +162,7 @@ impl Benchmark<'_> {
                     trial_rate_pct: Some(rate),
                     trial_remaining_secs: Some(self.config.trial_seconds),
                     progress: None,
-                    message: Some(format!(
-                        "frame {frame_size}B · measuring latency at {rate:.2}%"
-                    )),
+                    message: Some(format!("frame {frame_size}B · measuring latency at {rate:.2}%")),
                 })
                 .await;
 
@@ -186,7 +184,8 @@ impl Benchmark<'_> {
         // The reported figure is the throughput in packets and bits per second,
         // not just a percentage: a percentage of an unstated line rate is not a
         // result anybody can compare against another tester.
-        let line_pps = flux_core::rate::line_rate_pps(self.port_speed_mbps(), f64::from(frame_size));
+        let line_pps =
+            flux_core::rate::line_rate_pps(self.port_speed_mbps(), f64::from(frame_size));
         let result_pps = rate_pct.map(|pct| line_pps * pct / 100.0);
 
         let metrics = json!({
@@ -360,11 +359,7 @@ impl Benchmark<'_> {
     }
 
     /// Runs one burst trial.
-    async fn burst_trial(
-        &self,
-        frame_size: u32,
-        burst_frames: u64,
-    ) -> Result<BurstTrial, String> {
+    async fn burst_trial(&self, frame_size: u32, burst_frames: u64) -> Result<BurstTrial, String> {
         let pgids = self.program(frame_size, Some(burst_frames), false).await?;
 
         // Long enough for the burst itself at line rate, plus time for the tail
@@ -397,11 +392,10 @@ impl Benchmark<'_> {
             std::collections::HashMap::new();
 
         for planned in &self.plan.flows {
-            let tx = *self
-                .plan
-                .engine_index
-                .get(&planned.config.tx_port)
-                .ok_or_else(|| format!("flow {} transmits outside the group", planned.flow.name))?;
+            let tx =
+                *self.plan.engine_index.get(&planned.config.tx_port).ok_or_else(|| {
+                    format!("flow {} transmits outside the group", planned.flow.name)
+                })?;
 
             let benchmark_config = FlowConfig {
                 size: FrameSize::Fixed { bytes: frame_size },
@@ -465,10 +459,7 @@ impl Benchmark<'_> {
 
         // Always stop, including after cancellation: the trial is over either
         // way and an engine left transmitting is the failure that matters.
-        self.engine
-            .stop_traffic(&tx_ports)
-            .await
-            .map_err(|e| format!("stopping traffic: {e}"))?;
+        self.engine.stop_traffic(&tx_ports).await.map_err(|e| format!("stopping traffic: {e}"))?;
 
         Ok(())
     }

@@ -188,7 +188,11 @@ impl Rfc2544Config {
 
 impl Validate for Rfc2544Config {
     fn validate_into(&self, v: &mut Validation) {
-        v.require(!self.frame_sizes.is_empty(), "frameSizes", "at least one frame size is required");
+        v.require(
+            !self.frame_sizes.is_empty(),
+            "frameSizes",
+            "at least one frame size is required",
+        );
         v.require(
             self.frame_sizes.len() <= 32,
             "frameSizes",
@@ -224,11 +228,7 @@ impl Validate for Rfc2544Config {
         );
 
         v.require(self.max_iterations >= 1, "maxIterations", "must be at least 1");
-        v.require(
-            self.max_iterations <= 100,
-            "maxIterations",
-            "must be at most 100",
-        );
+        v.require(self.max_iterations <= 100, "maxIterations", "must be at most 100");
 
         v.require(
             self.initial_rate_pct > 0.0 && self.initial_rate_pct <= 100.0,
@@ -257,11 +257,7 @@ impl Validate for Rfc2544Config {
         );
 
         v.require(self.max_burst_frames >= 1, "maxBurstFrames", "must be at least 1");
-        v.require(
-            self.burst_resolution_frames >= 1,
-            "burstResolutionFrames",
-            "must be at least 1",
-        );
+        v.require(self.burst_resolution_frames >= 1, "burstResolutionFrames", "must be at least 1");
         v.require(
             self.burst_resolution_frames < self.max_burst_frames,
             "burstResolutionFrames",

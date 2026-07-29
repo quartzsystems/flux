@@ -21,7 +21,9 @@ pub type Id = Uuid;
 ///
 /// Roles are totally ordered by privilege, which is what makes the
 /// `has_at_least` check on route guards a single comparison.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// Read-only: may issue `GET` requests and watch live streams.

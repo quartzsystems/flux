@@ -336,10 +336,7 @@ mod tests {
 
         // Every quote in the value is escaped, so the whole thing stays one
         // string literal and cannot close the selector to append an expression.
-        assert_eq!(
-            build_selector(&p),
-            r#"flux_port_tx_pps{port="a\" or up{job=\"x\"} or \""}"#
-        );
+        assert_eq!(build_selector(&p), r#"flux_port_tx_pps{port="a\" or up{job=\"x\"} or \""}"#);
     }
 
     #[test]

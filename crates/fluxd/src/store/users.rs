@@ -6,16 +6,13 @@ use sqlx::PgPool;
 use super::models::User;
 
 /// Columns selected wherever a full [`User`] is returned.
-const COLUMNS: &str =
-    "id, username, pw_hash, role, created_at, updated_at, last_login_at";
+const COLUMNS: &str = "id, username, pw_hash, role, created_at, updated_at, last_login_at";
 
 /// Every account, newest first.
 pub async fn list(pool: &PgPool) -> sqlx::Result<Vec<User>> {
-    sqlx::query_as::<_, User>(&format!(
-        "SELECT {COLUMNS} FROM users ORDER BY created_at DESC"
-    ))
-    .fetch_all(pool)
-    .await
+    sqlx::query_as::<_, User>(&format!("SELECT {COLUMNS} FROM users ORDER BY created_at DESC"))
+        .fetch_all(pool)
+        .await
 }
 
 /// One account by primary key.

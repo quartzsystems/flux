@@ -30,9 +30,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::translate;
 use crate::collector::{CollectionTarget, Collector, RunProgress};
+use crate::config::Config;
 use crate::engine::launch::{self, LaunchRequest};
 use crate::engine::{EngineHandle, EngineRegistry};
-use crate::config::Config;
 use crate::store::models::{Flow, LoadProfile, Port, Test};
 use crate::store::{self, Store};
 
@@ -221,8 +221,7 @@ impl RunSupervisor {
             ));
         }
 
-        let profile_rows =
-            store::profiles::get_many(self.store.pool(), &test.profile_ids).await?;
+        let profile_rows = store::profiles::get_many(self.store.pool(), &test.profile_ids).await?;
         if profile_rows.len() != test.profile_ids.len() {
             return Err(RunError::NotFound(
                 "one or more of this test's load profiles no longer exists".into(),
@@ -242,10 +241,12 @@ impl RunSupervisor {
                 if ports_by_id.contains_key(&port_id) {
                     continue;
                 }
-                let port = store::ports::get(self.store.pool(), port_id)
-                    .await?
-                    .ok_or_else(|| {
-                        RunError::NotFound(format!("flow {} names a port that no longer exists", flow.name))
+                let port =
+                    store::ports::get(self.store.pool(), port_id).await?.ok_or_else(|| {
+                        RunError::NotFound(format!(
+                            "flow {} names a port that no longer exists",
+                            flow.name
+                        ))
                     })?;
 
                 let port_group = port.group_id.ok_or_else(|| {
@@ -285,9 +286,8 @@ impl RunSupervisor {
                 if ports_by_id.contains_key(&port_id) {
                     continue;
                 }
-                let port = store::ports::get(self.store.pool(), port_id)
-                    .await?
-                    .ok_or_else(|| {
+                let port =
+                    store::ports::get(self.store.pool(), port_id).await?.ok_or_else(|| {
                         RunError::NotFound(format!(
                             "profile {} names a port that no longer exists",
                             row.name
@@ -415,14 +415,11 @@ impl RunSupervisor {
         // A port with no carrier transmits into nothing and receives nothing,
         // which produces a run reporting 100% loss and no indication why. Say so
         // before spending the trial rather than after.
-        let status =
-            engine.port_status().await.map_err(|e| format!("reading port state: {e}"))?;
+        let status = engine.port_status().await.map_err(|e| format!("reading port state: {e}"))?;
         let dark: Vec<String> = plan
             .ports
             .iter()
-            .filter(|(index, _)| {
-                status.iter().any(|s| s.port == *index && !s.link_up)
-            })
+            .filter(|(index, _)| status.iter().any(|s| s.port == *index && !s.link_up))
             .map(|(_, port)| port.name.clone())
             .collect();
         if !dark.is_empty() {
@@ -443,10 +440,9 @@ impl RunSupervisor {
             HashMap::new();
 
         for planned in &plan.flows {
-            let tx = *plan
-                .engine_index
-                .get(&planned.config.tx_port)
-                .ok_or_else(|| format!("flow {} transmits from a port outside the group", planned.flow.name))?;
+            let tx = *plan.engine_index.get(&planned.config.tx_port).ok_or_else(|| {
+                format!("flow {} transmits from a port outside the group", planned.flow.name)
+            })?;
 
             let speed = plan
                 .ports
@@ -529,7 +525,10 @@ impl RunSupervisor {
 
         let tx_ports: Vec<EnginePortId> = streams_ports(plan);
         engine
-            .start_traffic(&tx_ports, StartOptions { multiplier: 1.0, duration_secs: duration, force: false })
+            .start_traffic(
+                &tx_ports,
+                StartOptions { multiplier: 1.0, duration_secs: duration, force: false },
+            )
             .await
             .map_err(|e| format!("starting traffic: {e}"))?;
 
@@ -569,10 +568,7 @@ impl RunSupervisor {
         engine: &EngineHandle,
         cancel: &CancellationToken,
     ) -> Result<(), String> {
-        let planned = plan
-            .profiles
-            .first()
-            .ok_or_else(|| "no load profile to run".to_string())?;
+        let planned = plan.profiles.first().ok_or_else(|| "no load profile to run".to_string())?;
 
         if plan.profiles.len() > 1 {
             return Err(format!(
@@ -587,10 +583,7 @@ impl RunSupervisor {
         let target_cps = load.target_cps;
         let warmup = load.warmup_secs;
 
-        engine
-            .load_astf_profile(load)
-            .await
-            .map_err(|e| format!("programming the load: {e}"))?;
+        engine.load_astf_profile(load).await.map_err(|e| format!("programming the load: {e}"))?;
 
         // Collection starts before the load does, so the first sample after the
         // start is a real one rather than the difference from nothing.
@@ -606,10 +599,7 @@ impl RunSupervisor {
             .await;
 
         let duration = planned.config.duration_secs;
-        engine
-            .start_astf(duration)
-            .await
-            .map_err(|e| format!("starting the load: {e}"))?;
+        engine.start_astf(duration).await.map_err(|e| format!("starting the load: {e}"))?;
 
         self.transition(run_id, RunState::Running, None).await;
         self.collector
@@ -775,7 +765,8 @@ impl RunSupervisor {
 
         let ordered = store::ports::get_many_ordered(self.store.pool(), &plan.member_ids).await?;
         let pci_addrs = ordered.iter().map(|p| p.pci_addr.clone()).collect();
-        let numa_node = ordered.first().and_then(|p| p.numa_node).and_then(|n| u32::try_from(n).ok());
+        let numa_node =
+            ordered.first().and_then(|p| p.numa_node).and_then(|n| u32::try_from(n).ok());
 
         let launched = launch::launch(
             &self.config,
@@ -939,9 +930,7 @@ pub struct PlannedProfile {
 
 #[cfg(test)]
 mod tests {
-    use flux_core::flow::{
-        EthernetFields, FrameSize, HeaderLayer, Ipv4Fields, Rate, UdpFields,
-    };
+    use flux_core::flow::{EthernetFields, FrameSize, HeaderLayer, Ipv4Fields, Rate, UdpFields};
 
     use super::*;
 
@@ -1013,10 +1002,7 @@ mod tests {
     fn a_bidirectional_pair_starts_both_ports() {
         let (a, b) = (Id::new_v4(), Id::new_v4());
         let mut p = plan(a, b);
-        p.flows.push(PlannedFlow {
-            flow: p.flows[0].flow.clone(),
-            config: config(b, a),
-        });
+        p.flows.push(PlannedFlow { flow: p.flows[0].flow.clone(), config: config(b, a) });
 
         assert_eq!(streams_ports(&p), vec![EnginePortId(0), EnginePortId(1)]);
     }

@@ -25,10 +25,7 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Every setting.
-async fn list(
-    State(state): State<AppState>,
-    _auth: AdminAuth,
-) -> ApiResult<Json<Vec<Setting>>> {
+async fn list(State(state): State<AppState>, _auth: AdminAuth) -> ApiResult<Json<Vec<Setting>>> {
     Ok(Json(settings::list(state.store.pool()).await?))
 }
 

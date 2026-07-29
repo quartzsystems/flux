@@ -58,10 +58,7 @@ async fn report(
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("inline; filename=\"{}\"", input.filename()),
-            ),
+            (header::CONTENT_DISPOSITION, format!("inline; filename=\"{}\"", input.filename())),
         ],
         input.render(),
     )

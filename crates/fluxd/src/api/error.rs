@@ -109,9 +109,7 @@ impl IntoResponse for ApiError {
         let code = self.code().to_string();
 
         let (message, errors) = match self {
-            ApiError::Validation(errors) => {
-                ("one or more fields are invalid".to_string(), errors)
-            }
+            ApiError::Validation(errors) => ("one or more fields are invalid".to_string(), errors),
             ApiError::Internal(err) => {
                 // The only place the real cause is recorded. `{err:#}` walks the
                 // context chain, which is what makes anyhow's context worth adding.
@@ -153,9 +151,9 @@ impl From<PortError> for ApiError {
             PortError::NotFound(pci) => ApiError::NotFound(format!("device {pci}")),
             PortError::NotAllowed(_) => ApiError::Forbidden,
             PortError::Invalid(msg) => ApiError::BadRequest(msg),
-            PortError::Unavailable(msg) => ApiError::Unavailable(format!(
-                "the privileged port helper is unreachable: {msg}"
-            )),
+            PortError::Unavailable(msg) => {
+                ApiError::Unavailable(format!("the privileged port helper is unreachable: {msg}"))
+            }
             PortError::Failed(msg) => ApiError::Conflict(msg),
         }
     }

@@ -73,8 +73,8 @@ async fn import_pcap(
 
     let data = data.ok_or_else(|| ApiError::field("file", "no file was uploaded"))?;
 
-    let imported = super::pcap::import(&data)
-        .map_err(|e| ApiError::field("file", e.to_string()))?;
+    let imported =
+        super::pcap::import(&data).map_err(|e| ApiError::field("file", e.to_string()))?;
 
     tracing::info!(
         actor = %actor.username,
@@ -301,17 +301,10 @@ fn summarise(config: &FlowConfig, resolved: &ResolvedRate, variants: u64) -> Str
         FrameSize::Random { min, max } => format!("{min}-{max}B"),
     };
 
-    let variants = if variants > 1 {
-        format!("{} variants, ", format_count(variants))
-    } else {
-        String::new()
-    };
+    let variants =
+        if variants > 1 { format!("{} variants, ", format_count(variants)) } else { String::new() };
 
-    format!(
-        "{variants}{size}, {} = {}",
-        format_pps(resolved.pps),
-        format_bps(resolved.bps_l1)
-    )
+    format!("{variants}{size}, {} = {}", format_pps(resolved.pps), format_bps(resolved.bps_l1))
 }
 
 /// Renders a packet rate with a unit.
@@ -381,8 +374,8 @@ fn name_conflict(err: sqlx::Error) -> ApiError {
 #[cfg(test)]
 mod tests {
     use flux_core::flow::{
-        EthernetFields, HeaderLayer, ImixPreset, Ipv4Fields, Modifier, ModifierField,
-        ModifierMode, Rate, UdpFields,
+        EthernetFields, HeaderLayer, ImixPreset, Ipv4Fields, Modifier, ModifierField, ModifierMode,
+        Rate, UdpFields,
     };
 
     use super::*;

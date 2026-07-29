@@ -33,12 +33,11 @@ pub async fn get_many(pool: &PgPool, ids: &[Id]) -> sqlx::Result<Vec<Flow>> {
         return Ok(Vec::new());
     }
 
-    let rows = sqlx::query_as::<_, Flow>(&format!(
-        "SELECT {COLUMNS} FROM flows WHERE id = ANY($1)"
-    ))
-    .bind(ids)
-    .fetch_all(pool)
-    .await?;
+    let rows =
+        sqlx::query_as::<_, Flow>(&format!("SELECT {COLUMNS} FROM flows WHERE id = ANY($1)"))
+            .bind(ids)
+            .fetch_all(pool)
+            .await?;
 
     let mut by_id: std::collections::HashMap<Id, Flow> =
         rows.into_iter().map(|f| (f.id, f)).collect();

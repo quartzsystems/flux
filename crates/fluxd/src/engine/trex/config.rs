@@ -102,8 +102,9 @@ pub fn build(
     // measurement, so worker cores start at 2. When no explicit list is given,
     // hand it a contiguous block sized to the port count.
     let platform = if cfg.cores.is_empty() {
-        let threads: Vec<u16> =
-            (0..u16::from(cfg.threads_per_port) * u16::from(port_count.max(1))).map(|i| i + 2).collect();
+        let threads: Vec<u16> = (0..u16::from(cfg.threads_per_port) * u16::from(port_count.max(1)))
+            .map(|i| i + 2)
+            .collect();
         Some(Platform {
             master_thread_id: 0,
             latency_thread_id: 1,
@@ -113,10 +114,7 @@ pub fn build(
         Some(Platform {
             master_thread_id: 0,
             latency_thread_id: 1,
-            dual_if: vec![DualIf {
-                socket: numa_node.unwrap_or(0),
-                threads: cfg.cores.clone(),
-            }],
+            dual_if: vec![DualIf { socket: numa_node.unwrap_or(0), threads: cfg.cores.clone() }],
         })
     };
 
@@ -148,10 +146,7 @@ mod tests {
 
     /// Two ports on one card.
     fn addrs() -> Vec<PciAddr> {
-        vec![
-            PciAddr::parse("0000:81:00.0").unwrap(),
-            PciAddr::parse("0000:81:00.1").unwrap(),
-        ]
+        vec![PciAddr::parse("0000:81:00.0").unwrap(), PciAddr::parse("0000:81:00.1").unwrap()]
     }
 
     #[test]

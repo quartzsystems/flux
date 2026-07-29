@@ -138,10 +138,8 @@ pub async fn set_members(pool: &PgPool, id: Id, port_ids: &[Id]) -> sqlx::Result
 
 /// The ports in a group, in engine port-number order.
 pub async fn member_ids(pool: &PgPool, id: Id) -> sqlx::Result<Vec<Id>> {
-    sqlx::query_scalar::<_, Id>(
-        "SELECT id FROM ports WHERE group_id = $1 ORDER BY group_index",
-    )
-    .bind(id)
-    .fetch_all(pool)
-    .await
+    sqlx::query_scalar::<_, Id>("SELECT id FROM ports WHERE group_id = $1 ORDER BY group_index")
+        .bind(id)
+        .fetch_all(pool)
+        .await
 }

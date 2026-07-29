@@ -44,9 +44,7 @@ async fn start(
 
     if let Some(existing) = state.engines.get(id).await {
         if existing.is_ready() {
-            return Err(ApiError::Conflict(
-                "this group already has a running engine".into(),
-            ));
+            return Err(ApiError::Conflict("this group already has a running engine".into()));
         }
         // Anything other than ready is stale; replace it rather than refusing
         // to relaunch a group whose engine has already gone away.
@@ -70,7 +68,10 @@ async fn start(
             group_id: id,
             mode: group.engine_mode,
             pci_addrs: members.iter().map(|p| p.pci_addr.clone()).collect(),
-            numa_node: members.first().and_then(|p| p.numa_node).and_then(|n| u32::try_from(n).ok()),
+            numa_node: members
+                .first()
+                .and_then(|p| p.numa_node)
+                .and_then(|n| u32::try_from(n).ok()),
             instance,
         },
     )
@@ -110,10 +111,9 @@ async fn start(
     }
     state.engines.insert(launched.handle).await;
 
-    let group =
-        port_groups::set_state(state.store.pool(), id, group_state, error.as_deref())
-            .await?
-            .ok_or_else(|| ApiError::NotFound(format!("port group {id}")))?;
+    let group = port_groups::set_state(state.store.pool(), id, group_state, error.as_deref())
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("port group {id}")))?;
 
     tracing::info!(actor = %actor.username, state = %group_state, "port group engine started");
     Ok(Json(PortGroupView { group, port_ids: member_ids }))
@@ -167,10 +167,7 @@ pub struct PortGroupView {
 }
 
 /// Every group with its membership.
-async fn list(
-    State(state): State<AppState>,
-    _auth: Auth,
-) -> ApiResult<Json<Vec<PortGroupView>>> {
+async fn list(State(state): State<AppState>, _auth: Auth) -> ApiResult<Json<Vec<PortGroupView>>> {
     let groups = port_groups::list(state.store.pool()).await?;
 
     let mut views = Vec::with_capacity(groups.len());
@@ -256,10 +253,9 @@ async fn create(
     let cfg = serde_json::to_value(body.trex_cfg.clone().unwrap_or_default())
         .map_err(|e| ApiError::Internal(e.into()))?;
 
-    let group =
-        port_groups::create(state.store.pool(), body.name.trim(), body.engine_mode, &cfg)
-            .await
-            .map_err(name_conflict)?;
+    let group = port_groups::create(state.store.pool(), body.name.trim(), body.engine_mode, &cfg)
+        .await
+        .map_err(name_conflict)?;
 
     port_groups::set_members(state.store.pool(), group.id, &body.port_ids).await?;
 
@@ -386,11 +382,8 @@ mod tests {
     #[test]
     fn engine_config_failures_are_reported_under_their_own_prefix() {
         let mut body = input(vec![]);
-        body.trex_cfg = Some(EngineInstanceConfig {
-            rpc_port: 4501,
-            async_port: 4501,
-            ..Default::default()
-        });
+        body.trex_cfg =
+            Some(EngineInstanceConfig { rpc_port: 4501, async_port: 4501, ..Default::default() });
         let errs = body.validate().unwrap_err();
         assert!(
             errs.iter().any(|e| e.path == "trexCfg.asyncPort"),

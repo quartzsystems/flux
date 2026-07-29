@@ -209,11 +209,7 @@ impl Validate for EngineInstanceConfig {
     fn validate_into(&self, v: &mut Validation) {
         v.require(self.rpc_port >= 1024, "rpcPort", "must be an unprivileged port (>= 1024)");
         v.require(self.async_port >= 1024, "asyncPort", "must be an unprivileged port (>= 1024)");
-        v.require(
-            self.rpc_port != self.async_port,
-            "asyncPort",
-            "must differ from the RPC port",
-        );
+        v.require(self.rpc_port != self.async_port, "asyncPort", "must differ from the RPC port");
         v.require(
             (1..=16).contains(&self.threads_per_port),
             "threadsPerPort",

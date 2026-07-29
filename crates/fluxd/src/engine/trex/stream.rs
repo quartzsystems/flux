@@ -231,10 +231,8 @@ mod tests {
 
     #[test]
     fn several_modifiers_get_distinct_variable_names() {
-        let encoded = encode(
-            &spec(vec![increment(26, 4, 1, 100), increment(30, 4, 1, 100)], false),
-            1,
-        );
+        let encoded =
+            encode(&spec(vec![increment(26, 4, 1, 100), increment(30, 4, 1, 100)], false), 1);
         let vm = encoded["vm"]["instructions"].as_array().unwrap();
 
         assert_eq!(vm.len(), 4);

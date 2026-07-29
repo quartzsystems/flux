@@ -43,9 +43,7 @@ mod unix_impl {
         match std::fs::remove_file(&socket_path) {
             Ok(()) => tracing::warn!(path = %socket_path.display(), "removed stale socket"),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(e).with_context(|| format!("removing {}", socket_path.display()))
-            }
+            Err(e) => return Err(e).with_context(|| format!("removing {}", socket_path.display())),
         }
 
         let listener = UnixListener::bind(&socket_path)
@@ -111,9 +109,7 @@ mod unix_impl {
             PortdRequest::Bind { pci, driver } => ops.bind(&pci, driver).await,
             PortdRequest::Unbind { pci } => ops.unbind(&pci).await,
             PortdRequest::HugepagesStatus => ops.hugepages_status().await,
-            PortdRequest::HugepagesSetup { count, size } => {
-                ops.hugepages_setup(count, size).await
-            }
+            PortdRequest::HugepagesSetup { count, size } => ops.hugepages_setup(count, size).await,
         };
 
         match result {

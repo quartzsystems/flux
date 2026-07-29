@@ -13,7 +13,10 @@ const COLUMNS: &str = "id, test_id, test_name, type, state, started_by, started_
 ///
 /// `test_name`, `test_type`, and `snapshot` are copied in rather than referenced
 /// so the run remains interpretable after the test is edited or deleted.
-#[allow(clippy::too_many_arguments, reason = "a run row genuinely has this many independent fields")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a run row genuinely has this many independent fields"
+)]
 pub async fn create(
     pool: &PgPool,
     test_id: Option<Id>,
@@ -113,7 +116,6 @@ pub async fn set_state(
     .fetch_optional(pool)
     .await
 }
-
 
 /// Fails every non-terminal run.
 ///

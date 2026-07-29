@@ -189,10 +189,7 @@ pub fn throughput_next(config: &Rfc2544Config, trials: &[RateTrial]) -> SearchAc
     // Passing at the ceiling ends the search: nothing higher will be tried, so
     // the answer is the ceiling itself.
     if best_pass.is_some_and(|rate| rate >= config.initial_rate_pct) {
-        return SearchAction::Converged {
-            rate_pct: best_pass,
-            reason: StopReason::CeilingPassed,
-        };
+        return SearchAction::Converged { rate_pct: best_pass, reason: StopReason::CeilingPassed };
     }
 
     let lower = best_pass.unwrap_or(0.0);
@@ -212,10 +209,7 @@ pub fn throughput_next(config: &Rfc2544Config, trials: &[RateTrial]) -> SearchAc
     // The budget is checked after the window, so a search that converged on its
     // last permitted trial reports convergence rather than exhaustion.
     if trials.len() as u32 >= config.max_iterations {
-        return SearchAction::Converged {
-            rate_pct: best_pass,
-            reason: StopReason::IterationLimit,
-        };
+        return SearchAction::Converged { rate_pct: best_pass, reason: StopReason::IterationLimit };
     }
 
     let next = (lower + upper) / 2.0;
@@ -253,11 +247,8 @@ pub struct SearchWindow {
 pub fn search_window(config: &Rfc2544Config, trials: &[RateTrial]) -> SearchWindow {
     let tolerance = config.loss_tolerance_pct;
 
-    let lower = trials
-        .iter()
-        .filter(|t| t.passed(tolerance))
-        .map(|t| t.rate_pct)
-        .fold(0.0f64, f64::max);
+    let lower =
+        trials.iter().filter(|t| t.passed(tolerance)).map(|t| t.rate_pct).fold(0.0f64, f64::max);
     let upper = trials
         .iter()
         .filter(|t| !t.passed(tolerance))
@@ -435,10 +426,7 @@ mod tests {
                         fail(rate_pct)
                     });
 
-                    assert!(
-                        attempted.len() < 200,
-                        "the search did not terminate: {attempted:?}"
-                    );
+                    assert!(attempted.len() < 200, "the search did not terminate: {attempted:?}");
                 }
                 done => return (attempted, done),
             }
@@ -451,7 +439,10 @@ mod tests {
 
     #[test]
     fn loss_is_measured_against_frames_transmitted() {
-        assert_eq!(RateTrial { rate_pct: 50.0, tx_packets: 1000, rx_packets: 1000 }.loss_pct(), 0.0);
+        assert_eq!(
+            RateTrial { rate_pct: 50.0, tx_packets: 1000, rx_packets: 1000 }.loss_pct(),
+            0.0
+        );
         assert_eq!(RateTrial { rate_pct: 50.0, tx_packets: 1000, rx_packets: 990 }.loss_pct(), 1.0);
         assert_eq!(RateTrial { rate_pct: 50.0, tx_packets: 1000, rx_packets: 0 }.loss_pct(), 100.0);
     }
@@ -484,8 +475,9 @@ mod tests {
     #[test]
     fn a_tolerance_of_zero_admits_only_a_lossless_trial() {
         assert!(pass(50.0).passed(0.0));
-        assert!(!RateTrial { rate_pct: 50.0, tx_packets: 1_000_000, rx_packets: 999_999 }
-            .passed(0.0));
+        assert!(
+            !RateTrial { rate_pct: 50.0, tx_packets: 1_000_000, rx_packets: 999_999 }.passed(0.0)
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -494,16 +486,10 @@ mod tests {
 
     #[test]
     fn the_search_opens_at_the_configured_starting_rate() {
-        assert_eq!(
-            throughput_next(&config(), &[]),
-            SearchAction::Trial { rate_pct: 100.0 }
-        );
+        assert_eq!(throughput_next(&config(), &[]), SearchAction::Trial { rate_pct: 100.0 });
 
         let low_start = Rfc2544Config { initial_rate_pct: 50.0, ..config() };
-        assert_eq!(
-            throughput_next(&low_start, &[]),
-            SearchAction::Trial { rate_pct: 50.0 }
-        );
+        assert_eq!(throughput_next(&low_start, &[]), SearchAction::Trial { rate_pct: 50.0 });
     }
 
     #[test]
@@ -512,10 +498,7 @@ mod tests {
         // test — which is the right answer for a device that forwards line rate.
         assert_eq!(
             throughput_next(&config(), &[pass(100.0)]),
-            SearchAction::Converged {
-                rate_pct: Some(100.0),
-                reason: StopReason::CeilingPassed
-            }
+            SearchAction::Converged { rate_pct: Some(100.0), reason: StopReason::CeilingPassed }
         );
     }
 
@@ -597,10 +580,7 @@ mod tests {
         assert_eq!(attempted, vec![100.0]);
         assert_eq!(
             outcome,
-            SearchAction::Converged {
-                rate_pct: Some(100.0),
-                reason: StopReason::CeilingPassed
-            }
+            SearchAction::Converged { rate_pct: Some(100.0), reason: StopReason::CeilingPassed }
         );
     }
 
@@ -631,10 +611,7 @@ mod tests {
 
         assert_eq!(
             throughput_next(&tight, &trials),
-            SearchAction::Converged {
-                rate_pct: Some(75.0),
-                reason: StopReason::Resolution
-            }
+            SearchAction::Converged { rate_pct: Some(75.0), reason: StopReason::Resolution }
         );
     }
 
@@ -649,15 +626,9 @@ mod tests {
         let trials = vec![fail(100.0)];
         assert_eq!(
             throughput_next(&relaxed, &trials),
-            SearchAction::Converged {
-                rate_pct: Some(100.0),
-                reason: StopReason::CeilingPassed
-            }
+            SearchAction::Converged { rate_pct: Some(100.0), reason: StopReason::CeilingPassed }
         );
-        assert_eq!(
-            throughput_next(&strict, &trials),
-            SearchAction::Trial { rate_pct: 50.0 }
-        );
+        assert_eq!(throughput_next(&strict, &trials), SearchAction::Trial { rate_pct: 50.0 });
     }
 
     #[test]
@@ -679,11 +650,7 @@ mod tests {
     fn the_search_terminates_at_an_absurdly_fine_resolution() {
         // Floating point eventually stops producing distinct midpoints; the
         // search has to notice rather than loop.
-        let absurd = Rfc2544Config {
-            resolution_pct: 1e-15,
-            max_iterations: 100,
-            ..config()
-        };
+        let absurd = Rfc2544Config { resolution_pct: 1e-15, max_iterations: 100, ..config() };
         let (_, outcome) = simulate(&absurd, 63.7);
         assert!(matches!(outcome, SearchAction::Converged { .. }));
     }
@@ -699,10 +666,7 @@ mod tests {
         );
         assert_eq!(
             outcome,
-            SearchAction::Converged {
-                rate_pct: Some(40.0),
-                reason: StopReason::CeilingPassed
-            }
+            SearchAction::Converged { rate_pct: Some(40.0), reason: StopReason::CeilingPassed }
         );
     }
 
@@ -786,20 +750,14 @@ mod tests {
 
         assert_eq!(
             frameloss_next(&config(), &trials),
-            SearchAction::Converged {
-                rate_pct: Some(80.0),
-                reason: StopReason::LadderSettled
-            }
+            SearchAction::Converged { rate_pct: Some(80.0), reason: StopReason::LadderSettled }
         );
     }
 
     #[test]
     fn one_lossless_trial_is_not_enough_to_stop_the_ladder() {
         let trials = vec![fail(100.0), pass(90.0)];
-        assert!(matches!(
-            frameloss_next(&config(), &trials),
-            SearchAction::Trial { .. }
-        ));
+        assert!(matches!(frameloss_next(&config(), &trials), SearchAction::Trial { .. }));
     }
 
     #[test]
@@ -809,10 +767,7 @@ mod tests {
 
         assert_eq!(
             frameloss_next(&config, &trials),
-            SearchAction::Converged {
-                rate_pct: Some(90.0),
-                reason: StopReason::LadderComplete
-            }
+            SearchAction::Converged { rate_pct: Some(90.0), reason: StopReason::LadderComplete }
         );
     }
 
@@ -854,10 +809,7 @@ mod tests {
     #[test]
     fn the_burst_search_opens_at_the_longest_burst() {
         let config = Rfc2544Config { max_burst_frames: 100_000, ..config() };
-        assert_eq!(
-            b2b_next(&config, &[]),
-            BurstAction::Trial { burst_frames: 100_000 }
-        );
+        assert_eq!(b2b_next(&config, &[]), BurstAction::Trial { burst_frames: 100_000 });
     }
 
     #[test]
@@ -948,11 +900,8 @@ mod tests {
     fn the_burst_midpoint_does_not_overflow_on_large_bounds() {
         // Written as lower + (upper - lower) / 2 rather than (lower + upper) / 2
         // so that bounds near u64::MAX cannot wrap.
-        let config = Rfc2544Config {
-            max_burst_frames: u64::MAX,
-            burst_resolution_frames: 1,
-            ..config()
-        };
+        let config =
+            Rfc2544Config { max_burst_frames: u64::MAX, burst_resolution_frames: 1, ..config() };
         match b2b_next(&config, &[burst_fail(u64::MAX)]) {
             BurstAction::Trial { burst_frames } => {
                 assert!(burst_frames > 0 && burst_frames < u64::MAX);

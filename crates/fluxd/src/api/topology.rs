@@ -98,9 +98,7 @@ async fn get_dut(State(state): State<AppState>, _auth: Auth) -> ApiResult<Json<D
 
     // A description written by an older build, or edited by hand, may not parse.
     // Reporting nothing is better than a 500 on a page whose other half is fine.
-    let dut = stored
-        .and_then(|s| serde_json::from_value::<Dut>(s.value).ok())
-        .unwrap_or_default();
+    let dut = stored.and_then(|s| serde_json::from_value::<Dut>(s.value).ok()).unwrap_or_default();
 
     Ok(Json(dut))
 }
@@ -116,13 +114,7 @@ async fn put_dut(
 
     let value = serde_json::to_value(&dut)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("serialising the description: {e}")))?;
-    settings::put(
-        state.store.pool(),
-        settings::DUT_KEY,
-        &value,
-        Some(actor.user_id),
-    )
-    .await?;
+    settings::put(state.store.pool(), settings::DUT_KEY, &value, Some(actor.user_id)).await?;
 
     tracing::info!(actor = %actor.username, fields = dut.0.len(), "device under test recorded");
     Ok(Json(dut))
@@ -133,10 +125,7 @@ mod unit {
     use super::*;
 
     fn dut(pairs: &[(&str, &str)]) -> Dut {
-        Dut(pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-            .collect())
+        Dut(pairs.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect())
     }
 
     #[test]
@@ -161,9 +150,7 @@ mod unit {
 
     #[test]
     fn surrounding_whitespace_is_not_recorded() {
-        let out = dut(&[("  vendor  ", "  Acme  ")])
-            .sanitise()
-            .expect("padded input is valid");
+        let out = dut(&[("  vendor  ", "  Acme  ")]).sanitise().expect("padded input is valid");
 
         assert_eq!(out.0.get("vendor").map(String::as_str), Some("Acme"));
     }
@@ -171,9 +158,7 @@ mod unit {
     #[test]
     fn an_overlong_value_is_refused() {
         let long = "x".repeat(MAX_VALUE_LEN + 1);
-        let err = dut(&[("model", &long)])
-            .sanitise()
-            .expect_err("an overlong value is refused");
+        let err = dut(&[("model", &long)]).sanitise().expect_err("an overlong value is refused");
 
         assert!(matches!(err, ApiError::Validation(_)), "got {err:?}");
     }
@@ -186,13 +171,10 @@ mod unit {
 
     #[test]
     fn too_many_fields_are_refused() {
-        let owned: Vec<(String, String)> = (0..=MAX_ENTRIES)
-            .map(|i| (format!("field{i}"), "value".to_string()))
-            .collect();
-        let borrowed: Vec<(&str, &str)> = owned
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let owned: Vec<(String, String)> =
+            (0..=MAX_ENTRIES).map(|i| (format!("field{i}"), "value".to_string())).collect();
+        let borrowed: Vec<(&str, &str)> =
+            owned.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
 
         assert!(dut(&borrowed).sanitise().is_err());
     }

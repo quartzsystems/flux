@@ -155,7 +155,11 @@ fn default_port_max() -> u16 {
 
 impl Default for IpPool {
     fn default() -> Self {
-        Self { cidr: "10.0.0.0/16".into(), port_min: default_port_min(), port_max: default_port_max() }
+        Self {
+            cidr: "10.0.0.0/16".into(),
+            port_min: default_port_min(),
+            port_max: default_port_max(),
+        }
     }
 }
 
@@ -213,11 +217,7 @@ impl Validate for IpPool {
             }
         }
 
-        v.require(
-            self.port_min <= self.port_max,
-            "portMax",
-            "must be at least the minimum port",
-        );
+        v.require(self.port_min <= self.port_max, "portMax", "must be at least the minimum port");
         v.require(self.port_min >= 1, "portMin", "must be at least 1");
     }
 }
@@ -233,11 +233,7 @@ impl Validate for IpPool {
 /// the field it was meant for silently takes its default — which is the failure
 /// mode a test below exists to catch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(
-    tag = "type",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
 pub enum AppSpec {
     /// A single HTTP GET and its response.
     HttpGet {
@@ -471,7 +467,10 @@ mod tests {
     #[test]
     fn address_counts_exclude_the_network_and_broadcast() {
         // A host emulated at either is not one a device under test will answer.
-        assert_eq!(IpPool { cidr: "10.0.0.0/24".into(), ..Default::default() }.address_count(), 254);
+        assert_eq!(
+            IpPool { cidr: "10.0.0.0/24".into(), ..Default::default() }.address_count(),
+            254
+        );
         assert_eq!(
             IpPool { cidr: "10.0.0.0/16".into(), ..Default::default() }.address_count(),
             65_534
@@ -578,26 +577,18 @@ mod tests {
     /// TypeScript mirror. So the wire form is asserted literally.
     #[test]
     fn app_spec_variant_fields_are_camel_case_like_every_other_wire_type() {
-        let json = serde_json::to_value(AppSpec::Raw {
-            request_bytes: 128,
-            response_bytes: 4096,
-        })
-        .expect("serialises");
+        let json = serde_json::to_value(AppSpec::Raw { request_bytes: 128, response_bytes: 4096 })
+            .expect("serialises");
 
         assert_eq!(
             json,
             serde_json::json!({ "type": "raw", "requestBytes": 128, "responseBytes": 4096 })
         );
 
-        let pcap = serde_json::to_value(AppSpec::Pcap {
-            pcap_ref: "capture-1".into(),
-        })
-        .expect("serialises");
+        let pcap = serde_json::to_value(AppSpec::Pcap { pcap_ref: "capture-1".into() })
+            .expect("serialises");
 
-        assert_eq!(
-            pcap,
-            serde_json::json!({ "type": "pcap", "pcapRef": "capture-1" })
-        );
+        assert_eq!(pcap, serde_json::json!({ "type": "pcap", "pcapRef": "capture-1" }));
     }
 
     /// The dangerous half of the same bug: `http_get`'s fields both have
@@ -612,13 +603,7 @@ mod tests {
         }))
         .expect("parses");
 
-        assert_eq!(
-            parsed,
-            AppSpec::HttpGet {
-                path: "/big".into(),
-                response_bytes: 1_048_576,
-            }
-        );
+        assert_eq!(parsed, AppSpec::HttpGet { path: "/big".into(), response_bytes: 1_048_576 });
     }
 
     // -----------------------------------------------------------------------

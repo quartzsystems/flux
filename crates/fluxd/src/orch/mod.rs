@@ -11,8 +11,8 @@
 
 pub mod profile;
 pub mod rfc2544;
-pub mod statemachine;
 pub mod run;
+pub mod statemachine;
 pub mod translate;
 
 pub use run::RunSupervisor;

@@ -61,8 +61,8 @@ pub async fn authenticate(
 /// server to stamp a per-response nonce. Combined with `'self'`-only sources this
 /// still blocks loading foreign script, which is the attack that matters here;
 /// tightening it further needs the UI to move off static export.
-pub fn security_headers(
-) -> tower_http::set_header::SetResponseHeaderLayer<axum::http::HeaderValue> {
+pub fn security_headers() -> tower_http::set_header::SetResponseHeaderLayer<axum::http::HeaderValue>
+{
     tower_http::set_header::SetResponseHeaderLayer::overriding(
         axum::http::header::CONTENT_SECURITY_POLICY,
         axum::http::HeaderValue::from_static(

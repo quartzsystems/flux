@@ -10,8 +10,7 @@ use utoipa::OpenApi;
 
 use super::error::ErrorBody;
 use super::{
-    analytics, auth, flows, port_groups, ports, profiles, runs, settings, system, topology,
-    users,
+    analytics, auth, flows, port_groups, ports, profiles, runs, settings, system, topology, users,
 };
 // Aliased: this module has its own `tests` submodule, which would shadow it.
 use super::tests as test_api;

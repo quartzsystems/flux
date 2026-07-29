@@ -113,10 +113,8 @@ impl PortController for MockPortController {
         match driver {
             DriverKind::Kernel => {
                 nic.driver = Some("ice".into());
-                nic.ifname = Some(format!(
-                    "ens1f{}",
-                    nic.pci_addr.as_str().chars().last().unwrap_or('0')
-                ));
+                nic.ifname =
+                    Some(format!("ens1f{}", nic.pci_addr.as_str().chars().last().unwrap_or('0')));
                 nic.mode = PortMode::Kernel;
             }
             DriverKind::VfioPci | DriverKind::UioPciGeneric => {
@@ -145,9 +143,7 @@ impl PortController for MockPortController {
         size: HugepageSize,
     ) -> Result<HugepagesStatus, PortError> {
         if size != HugepageSize::OneGb {
-            return Err(PortError::Invalid(
-                "the mock chassis only offers 1G hugepages".into(),
-            ));
+            return Err(PortError::Invalid("the mock chassis only offers 1G hugepages".into()));
         }
         let mut state = self.state();
         // Preserve how many pages are already in use across a resize, the way the

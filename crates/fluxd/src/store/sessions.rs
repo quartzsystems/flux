@@ -71,6 +71,7 @@ pub async fn delete_for_user(pool: &PgPool, user_id: Id) -> sqlx::Result<u64> {
 
 /// Removes expired sessions. Run periodically by the daemon's janitor task.
 pub async fn purge_expired(pool: &PgPool) -> sqlx::Result<u64> {
-    let result = sqlx::query("DELETE FROM sessions WHERE expires_at <= now()").execute(pool).await?;
+    let result =
+        sqlx::query("DELETE FROM sessions WHERE expires_at <= now()").execute(pool).await?;
     Ok(result.rows_affected())
 }

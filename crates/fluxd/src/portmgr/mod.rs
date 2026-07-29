@@ -96,9 +96,8 @@ impl PortManager {
     /// cleanly, it makes the instance fail in a way that needs a restart.
     #[tracing::instrument(skip(self), fields(port_id = %port_id, %mode), err)]
     pub async fn set_mode(&self, port_id: Id, mode: PortMode) -> Result<Port, PortMgrError> {
-        let port = ports::get(self.store.pool(), port_id)
-            .await?
-            .ok_or(PortMgrError::NotFound(port_id))?;
+        let port =
+            ports::get(self.store.pool(), port_id).await?.ok_or(PortMgrError::NotFound(port_id))?;
 
         if port.mode == mode {
             return Ok(port);

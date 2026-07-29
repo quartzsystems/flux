@@ -245,7 +245,8 @@ fn decode_ethernet(frame: &[u8]) -> (Vec<HeaderLayer>, Vec<String>) {
             }
         }
         Some(other) => {
-            notes.push(format!("IP protocol {other} is not modelled; no transport layer was added"));
+            notes
+                .push(format!("IP protocol {other} is not modelled; no transport layer was added"));
         }
         None => {
             // The unclassified payload is preserved verbatim so the frame can
@@ -498,11 +499,7 @@ mod tests {
         f[14] = 0x46; // IHL of 6 words: 24 bytes
 
         let imported = import(&pcap(&f, LINKTYPE_ETHERNET)).unwrap();
-        assert!(
-            imported.notes.iter().any(|n| n.contains("IPv4 options")),
-            "{:?}",
-            imported.notes
-        );
+        assert!(imported.notes.iter().any(|n| n.contains("IPv4 options")), "{:?}", imported.notes);
     }
 
     #[test]
@@ -566,10 +563,7 @@ mod tests {
     #[test]
     fn a_non_ethernet_capture_is_refused_by_link_type() {
         // LINKTYPE_RAW carries no Ethernet header to build a stack from.
-        assert_eq!(
-            import(&pcap(&eth_ipv4_udp(), 101)),
-            Err(PcapError::UnsupportedLinkType(101))
-        );
+        assert_eq!(import(&pcap(&eth_ipv4_udp(), 101)), Err(PcapError::UnsupportedLinkType(101)));
     }
 
     #[test]

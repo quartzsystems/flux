@@ -218,10 +218,8 @@ impl Engine for TrexEngine {
             // Releasing a port we do not hold is not an error — the shutdown
             // path releases everything without checking first.
             if let Ok(handle) = self.handle_for(*port) {
-                calls.push((
-                    "release".to_string(),
-                    json!({ "port_id": port.0, "handler": handle }),
-                ));
+                calls
+                    .push(("release".to_string(), json!({ "port_id": port.0, "handler": handle })));
             }
         }
 
@@ -439,19 +437,14 @@ impl Engine for TrexEngine {
     }
 
     async fn stop_astf(&self) -> Result<(), EngineError> {
-        self.rpc
-            .lock()
-            .await
-            .call_raw("stop", json!({ "handler": self.session_id }))
-            .await?;
+        self.rpc.lock().await.call_raw("stop", json!({ "handler": self.session_id })).await?;
 
         tracing::info!("stateful load stopped");
         Ok(())
     }
 
     async fn astf_stats(&self) -> Result<AstfStats, EngineError> {
-        let result: Value =
-            self.rpc.lock().await.call_raw("get_astf_stats", json!({})).await?;
+        let result: Value = self.rpc.lock().await.call_raw("get_astf_stats", json!({})).await?;
         Ok(astf::decode_stats(&result))
     }
 }
@@ -741,8 +734,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_clear_counters_are_reported_absolutely() {
-        let (engine, _) =
-            engine(&[r#"[{"jsonrpc":"2.0","id":1,"result":{"opackets":1600}}]"#]);
+        let (engine, _) = engine(&[r#"[{"jsonrpc":"2.0","id":1,"result":{"opackets":1600}}]"#]);
         let stats = engine.port_stats(&[EnginePortId(0)]).await.unwrap();
         assert_eq!(stats[0].tx_packets, 1600);
     }
@@ -784,10 +776,7 @@ mod tests {
 
     #[tokio::test]
     async fn starting_traffic_sends_the_multiplier_and_duration() {
-        let (engine, fake) = engine(&[
-            ACQUIRE_TWO,
-            r#"[{"jsonrpc":"2.0","id":3,"result":{}}]"#,
-        ]);
+        let (engine, fake) = engine(&[ACQUIRE_TWO, r#"[{"jsonrpc":"2.0","id":3,"result":{}}]"#]);
         engine.acquire(&[EnginePortId(0), EnginePortId(1)], false).await.unwrap();
 
         engine

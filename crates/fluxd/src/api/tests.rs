@@ -220,11 +220,8 @@ async fn run(
             .unwrap_or_else(|| serde_json::json!({})),
     };
 
-    let run_id = state
-        .runs
-        .start(&test, Some(actor.user_id), dut_meta)
-        .await
-        .map_err(map_run_error)?;
+    let run_id =
+        state.runs.start(&test, Some(actor.user_id), dut_meta).await.map_err(map_run_error)?;
 
     tracing::info!(actor = %actor.username, %run_id, "run started");
     Ok(Json(RunStarted { run_id }))

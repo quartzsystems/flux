@@ -10,21 +10,17 @@ const COLUMNS: &str = "id, name, config, created_by, created_at, updated_at";
 
 /// Every profile, alphabetically.
 pub async fn list(pool: &PgPool) -> sqlx::Result<Vec<LoadProfile>> {
-    sqlx::query_as::<_, LoadProfile>(&format!(
-        "SELECT {COLUMNS} FROM load_profiles ORDER BY name"
-    ))
-    .fetch_all(pool)
-    .await
+    sqlx::query_as::<_, LoadProfile>(&format!("SELECT {COLUMNS} FROM load_profiles ORDER BY name"))
+        .fetch_all(pool)
+        .await
 }
 
 /// One profile by primary key.
 pub async fn get(pool: &PgPool, id: Id) -> sqlx::Result<Option<LoadProfile>> {
-    sqlx::query_as::<_, LoadProfile>(&format!(
-        "SELECT {COLUMNS} FROM load_profiles WHERE id = $1"
-    ))
-    .bind(id)
-    .fetch_optional(pool)
-    .await
+    sqlx::query_as::<_, LoadProfile>(&format!("SELECT {COLUMNS} FROM load_profiles WHERE id = $1"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await
 }
 
 /// Several profiles by primary key, in the order requested.

@@ -115,13 +115,11 @@ pub struct DiskUsage {
 
 /// Reports the state of every dependency a test run needs.
 async fn health(State(state): State<AppState>, _auth: Auth) -> ApiResult<Json<Health>> {
-    let database = match sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(state.store.pool())
-        .await
-    {
-        Ok(_) => SubsystemHealth::ok("postgres"),
-        Err(err) => SubsystemHealth::failed("postgres", err.to_string()),
-    };
+    let database =
+        match sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(state.store.pool()).await {
+            Ok(_) => SubsystemHealth::ok("postgres"),
+            Err(err) => SubsystemHealth::failed("postgres", err.to_string()),
+        };
 
     let portd_backend = match state.config.portd {
         PortdBackend::Mock => "mock",

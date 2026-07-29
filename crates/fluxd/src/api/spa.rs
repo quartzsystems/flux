@@ -173,11 +173,7 @@ fn missing_export(web_root: &Path, uri: &Uri) -> Response {
         web_root.display()
     );
 
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-        body,
-    )
+    (StatusCode::SERVICE_UNAVAILABLE, [(header::CONTENT_TYPE, "text/html; charset=utf-8")], body)
         .into_response()
 }
 

@@ -241,7 +241,8 @@ mod tests {
         let mut last = Duration::ZERO;
 
         for _ in 0..MAX_RESTARTS {
-            if let RestartDecision::RestartAfter(wait) = supervisor.note_exit(Duration::from_secs(1))
+            if let RestartDecision::RestartAfter(wait) =
+                supervisor.note_exit(Duration::from_secs(1))
             {
                 last = wait;
             }

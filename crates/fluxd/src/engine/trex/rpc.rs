@@ -375,9 +375,7 @@ mod tests {
     #[tokio::test]
     async fn a_short_batch_reply_is_a_protocol_error() {
         let (mut rpc, _) = client(&[r#"[{"jsonrpc":"2.0","id":1,"result":1}]"#]);
-        let result = rpc
-            .call_batch(vec![("a".into(), json!({})), ("b".into(), json!({}))])
-            .await;
+        let result = rpc.call_batch(vec![("a".into(), json!({})), ("b".into(), json!({}))]).await;
         assert!(matches!(result, Err(EngineError::Protocol(_))), "got {result:?}");
     }
 
@@ -393,9 +391,7 @@ mod tests {
         let (mut rpc, _) = client(&[
             r#"[{"jsonrpc":"2.0","id":1,"result":1},{"jsonrpc":"2.0","id":2,"error":{"code":-1,"message":"nope"}}]"#,
         ]);
-        let result = rpc
-            .call_batch(vec![("a".into(), json!({})), ("b".into(), json!({}))])
-            .await;
+        let result = rpc.call_batch(vec![("a".into(), json!({})), ("b".into(), json!({}))]).await;
         assert!(result.is_err());
     }
 }

@@ -222,10 +222,12 @@ mod tests {
     use super::*;
 
     /// A structurally valid certificate block.
-    const CERT: &str = "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAKZ\nZm9vYmFy\n-----END CERTIFICATE-----\n";
+    const CERT: &str =
+        "-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJAKZ\nZm9vYmFy\n-----END CERTIFICATE-----\n";
 
     /// A structurally valid key block.
-    const KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\na2V5\n-----END PRIVATE KEY-----\n";
+    const KEY: &str =
+        "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\na2V5\n-----END PRIVATE KEY-----\n";
 
     #[test]
     fn well_formed_material_parses() {

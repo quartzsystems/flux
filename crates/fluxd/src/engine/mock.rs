@@ -334,10 +334,8 @@ impl MockEngine {
     /// Minimum, mean, and maximum are sampled, because those are the figures an
     /// operator watches move.
     fn sample_latency(&self, state: &State, pgid: PgId) -> LatencyStats {
-        let tracked = state
-            .ports
-            .iter()
-            .any(|p| p.streams.iter().any(|s| s.pg_id == pgid && s.latency));
+        let tracked =
+            state.ports.iter().any(|p| p.streams.iter().any(|s| s.pg_id == pgid && s.latency));
 
         if !tracked {
             return LatencyStats::default();
@@ -1112,11 +1110,7 @@ mod tests {
 
         // 100k per second for about 120 ms. Loose bounds: this is wall-clock
         // time on a shared machine.
-        assert!(
-            (5_000..60_000).contains(&stats.attempted),
-            "got {} connections",
-            stats.attempted
-        );
+        assert!((5_000..60_000).contains(&stats.attempted), "got {} connections", stats.attempted);
         assert_eq!(stats.established, stats.attempted, "no failures were injected");
     }
 
@@ -1216,10 +1210,7 @@ mod tests {
         let mut profile = astf_profile(1000.0, 0.0);
         profile.server_port = EnginePortId(7);
 
-        assert!(matches!(
-            engine.load_astf_profile(profile).await,
-            Err(EngineError::Rejected(_))
-        ));
+        assert!(matches!(engine.load_astf_profile(profile).await, Err(EngineError::Rejected(_))));
     }
 
     #[test]

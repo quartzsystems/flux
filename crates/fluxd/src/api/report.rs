@@ -37,10 +37,7 @@ pub fn render(run: &Run, results: &[RunResult], appliance_version: &str) -> Stri
 /// Read from the run's own snapshot rather than from the test, so a report
 /// stays accurate after the test has been edited.
 fn benchmark_config(run: &Run) -> Option<Rfc2544Config> {
-    run.config_snapshot
-        .get("rfc2544")
-        .cloned()
-        .and_then(|v| serde_json::from_value(v).ok())
+    run.config_snapshot.get("rfc2544").cloned().and_then(|v| serde_json::from_value(v).ok())
 }
 
 /// The document head, including the print stylesheet.
@@ -170,12 +167,7 @@ fn summary(run: &Run, config: Option<&Rfc2544Config>) -> String {
 <dt>Trial duration</dt><dd>{trial} s</dd>
 <dt>Loss tolerance</dt><dd>{tolerance} %</dd>
 <dt>Resolution</dt><dd>{resolution} % of line rate</dd>"#,
-            sizes = config
-                .frame_sizes
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(", "),
+            sizes = config.frame_sizes.iter().map(u32::to_string).collect::<Vec<_>>().join(", "),
             trial = config.trial_seconds,
             tolerance = config.loss_tolerance_pct,
             resolution = config.resolution_pct,
@@ -219,7 +211,9 @@ fn results_section(run: &Run, results: &[RunResult]) -> String {
     // frame size; the rest are the working that produced them.
     let summaries: Vec<&RunResult> = results
         .iter()
-        .filter(|r| r.params.get("resultRatePct").is_some() || r.params.get("resultBurstFrames").is_some())
+        .filter(|r| {
+            r.params.get("resultRatePct").is_some() || r.params.get("resultBurstFrames").is_some()
+        })
         .collect();
 
     if summaries.is_empty() {
@@ -294,7 +288,9 @@ fn trials_section(results: &[RunResult]) -> String {
 
     let trials: Vec<&RunResult> = results
         .iter()
-        .filter(|r| r.params.get("resultRatePct").is_none() && r.params.get("resultBurstFrames").is_none())
+        .filter(|r| {
+            r.params.get("resultRatePct").is_none() && r.params.get("resultBurstFrames").is_none()
+        })
         .collect();
 
     if trials.is_empty() {
@@ -317,10 +313,7 @@ fn trials_section(results: &[RunResult]) -> String {
 </tr>"#,
                 iteration = r.iteration,
                 size = r.frame_size.map(|s| s.to_string()).unwrap_or_else(|| "—".into()),
-                rate = decimal(
-                    r.params.get("ratePct").or_else(|| r.params.get("burstFrames")),
-                    3
-                ),
+                rate = decimal(r.params.get("ratePct").or_else(|| r.params.get("burstFrames")), 3),
                 tx = number(r.metrics.get("txPackets")),
                 rx = number(r.metrics.get("rxPackets")),
                 lost = number(r.metrics.get("lostPackets")),
@@ -358,12 +351,8 @@ fn load_section(results: &[RunResult]) -> String {
 <td class="num">{peak}</td>
 <td><span class="{class}">{verdict}</span></td>
 </tr>"#,
-                profile = escape(
-                    r.params
-                        .get("profileName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("—")
-                ),
+                profile =
+                    escape(r.params.get("profileName").and_then(|v| v.as_str()).unwrap_or("—")),
                 cps = decimal(r.params.get("targetCps"), 0),
                 attempted = number(r.metrics.get("attempted")),
                 established = number(r.metrics.get("established")),
@@ -801,9 +790,6 @@ mod tests {
         let name = input.filename();
         assert!(name.starts_with("flux-edge-router-throughput-"));
         assert!(name.ends_with(".html"));
-        assert!(
-            !name.contains(' ') && !name.contains('/') && !name.contains('\\'),
-            "got {name}"
-        );
+        assert!(!name.contains(' ') && !name.contains('/') && !name.contains('\\'), "got {name}");
     }
 }

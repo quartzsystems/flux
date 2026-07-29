@@ -55,9 +55,7 @@ pub fn to_astf(
             let request = 80 + path.len() as u32;
             (request, *response_bytes, None)
         }
-        AppSpec::Raw { request_bytes, response_bytes } => {
-            (*request_bytes, *response_bytes, None)
-        }
+        AppSpec::Raw { request_bytes, response_bytes } => (*request_bytes, *response_bytes, None),
         AppSpec::Pcap { pcap_ref } => {
             // Replay is a different program shape entirely; the reference is
             // carried through so the engine can refuse it by name rather than
@@ -167,13 +165,14 @@ mod tests {
         // The figure has to match what the encoder actually builds, or the
         // operator's estimate disagrees with the bytes on the wire.
         let (_, _, index) = ports();
-        let short = to_astf(
-            &profile(AppSpec::HttpGet { path: "/".into(), response_bytes: 1000 }),
-            &index,
-        )
-        .unwrap();
+        let short =
+            to_astf(&profile(AppSpec::HttpGet { path: "/".into(), response_bytes: 1000 }), &index)
+                .unwrap();
         let long = to_astf(
-            &profile(AppSpec::HttpGet { path: "/a/rather/longer/path".into(), response_bytes: 1000 }),
+            &profile(AppSpec::HttpGet {
+                path: "/a/rather/longer/path".into(),
+                response_bytes: 1000,
+            }),
             &index,
         )
         .unwrap();
@@ -185,11 +184,9 @@ mod tests {
     #[test]
     fn a_raw_profile_uses_its_sizes_verbatim() {
         let (_, _, index) = ports();
-        let load = to_astf(
-            &profile(AppSpec::Raw { request_bytes: 128, response_bytes: 4096 }),
-            &index,
-        )
-        .unwrap();
+        let load =
+            to_astf(&profile(AppSpec::Raw { request_bytes: 128, response_bytes: 4096 }), &index)
+                .unwrap();
 
         assert_eq!(load.request_bytes, 128);
         assert_eq!(load.response_bytes, 4096);
