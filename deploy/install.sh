@@ -16,6 +16,7 @@ set -euo pipefail
 # --- Defaults ---------------------------------------------------------------
 
 readonly REPO="quartzsystems/flux"
+readonly RAW_INSTALLER="https://raw.githubusercontent.com/quartzsystems/flux/main/deploy/install.sh"
 readonly SERVICE_USER="flux"
 readonly DB_NAME="flux"
 readonly DB_USER="flux"
@@ -317,6 +318,39 @@ verify_checksum() {
     ( cd "$dir" && printf '%s\n' "$expected" | sha256sum -c --status - )
 }
 
+# True when a release page exists for this tag, whatever it does or does not
+# carry. Used only to tell two failures apart, so an unreachable GitHub reports
+# "no release" rather than hanging the install.
+release_exists() {
+    curl -fsSL --max-time 15 -o /dev/null "https://github.com/$REPO/releases/tag/v$1" 2>/dev/null
+}
+
+# Explains a missing asset rather than restating the URL.
+#
+# "A release exists but has no binaries" is a specific and recoverable state —
+# it is what a release whose build failed, or one still building, looks like from
+# out here — and it needs a different answer from "that version was never
+# released". The installer is often the first thing to notice either.
+explain_missing_asset() {
+    local version="$1" tarball="$2"
+
+    if release_exists "$version"; then
+        die "release v$version exists, but it has no $tarball.
+
+       Either its build has not finished yet, or the release workflow failed and
+       published nothing. Check:
+           https://github.com/$REPO/releases/tag/v$version
+
+       Meanwhile you can install a version that did build:
+           curl -fsSL $RAW_INSTALLER | sudo bash -s -- --version <x.y.z>"
+    fi
+
+    die "no release v$version was found for $REPO.
+
+       Published releases are listed at:
+           https://github.com/$REPO/releases"
+}
+
 download_release() {
     local version="$1"
     local tarball="flux-${version}-${ARCH}-linux.tar.gz"
@@ -326,7 +360,7 @@ download_release() {
     step "Downloading Flux $version for $ARCH"
 
     curl -fsSL --retry 3 -o "$STAGE/$tarball" "$base/$tarball" \
-        || die "could not download $base/$tarball"
+        || explain_missing_asset "$version" "$tarball"
 
     # A missing checksum file is a hard failure rather than a skipped check:
     # installing an unverified binary as root is exactly what it exists to stop.
