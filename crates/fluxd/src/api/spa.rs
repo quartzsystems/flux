@@ -5,9 +5,13 @@
 //!
 //! * **Directory indexes.** The export is configured with `trailingSlash: true`,
 //!   so `/ports` is a directory containing `index.html`.
-//! * **Unknown paths.** A deep link the export did not pre-render still has to
-//!   reach the client-side router, so anything unmatched falls back to the root
-//!   document rather than 404.
+//! * **Dynamic routes.** A run's id does not exist at build time, so the export
+//!   emits one document per dynamic route under a placeholder segment
+//!   (`/runs/__id__/`). This module maps `/runs/<anything>/` onto it, which is
+//!   what keeps run URLs readable and linkable instead of degrading to a query
+//!   parameter.
+//! * **Unknown paths.** Anything still unmatched falls back to the root
+//!   document, so a deep link reaches the client-side router rather than a 404.
 //! * **Caching.** Next fingerprints everything under `/_next/static`, so those
 //!   are immutable; HTML must never be cached or an upgraded appliance keeps
 //!   serving the previous build's markup against the new API.
@@ -18,6 +22,11 @@ use axum::http::{header, HeaderValue, Request, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
+
+/// The placeholder segment the Next.js export uses for a dynamic route.
+///
+/// Must match `DYNAMIC_SEGMENT` in `web/app/runs/[id]/page.tsx`.
+const DYNAMIC_SEGMENT: &str = "__id__";
 
 /// Cache policy for content-hashed build output.
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
@@ -50,6 +59,15 @@ async fn serve(web_root: PathBuf, req: Request<axum::body::Body>) -> Response {
 
     let uri_path = req.uri().path().to_string();
 
+    // A dynamic route's document lives under a placeholder segment. Rewriting
+    // before the file service runs means `/runs/<uuid>/` finds it, while a real
+    // file at that path still wins because the rewrite only happens when the
+    // literal path does not exist.
+    let req = match dynamic_route_target(&web_root, &uri_path) {
+        Some(rewritten) => rewrite_path(req, &rewritten),
+        None => req,
+    };
+
     let serve_dir = ServeDir::new(&web_root)
         .append_index_html_on_directories(true)
         .fallback(ServeFile::new(&index));
@@ -61,6 +79,55 @@ async fn serve(web_root: PathBuf, req: Request<axum::body::Body>) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "failed to read static assets").into_response()
         }
     }
+}
+
+/// Finds the exported document for a dynamic route, if the literal path misses.
+///
+/// Tries replacing each path segment with the placeholder, rightmost first, so
+/// `/runs/<id>/report/` resolves before `/runs/<id>/` is considered. Returns
+/// `None` when the literal path exists or nothing matches, in which case the
+/// ordinary fallback applies.
+fn dynamic_route_target(web_root: &Path, uri_path: &str) -> Option<String> {
+    let segments: Vec<&str> = uri_path.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return None;
+    }
+
+    // A path that already resolves to a real document is never rewritten.
+    if web_root.join(segments.join("/")).join("index.html").exists() {
+        return None;
+    }
+
+    for position in (0..segments.len()).rev() {
+        // A segment that is itself a directory in the export is a route name,
+        // not an id — `/runs/` must not be rewritten to `/__id__/`.
+        if web_root.join(segments[..=position].join("/")).is_dir() {
+            continue;
+        }
+
+        let mut candidate: Vec<&str> = segments.clone();
+        candidate[position] = DYNAMIC_SEGMENT;
+
+        if web_root.join(candidate.join("/")).join("index.html").exists() {
+            let rewritten = format!("/{}/", candidate.join("/"));
+            tracing::trace!(from = %uri_path, to = %rewritten, "resolved a dynamic route");
+            return Some(rewritten);
+        }
+    }
+
+    None
+}
+
+/// Replaces a request's path, preserving its query string.
+fn rewrite_path(req: Request<axum::body::Body>, path: &str) -> Request<axum::body::Body> {
+    let (mut parts, body) = req.into_parts();
+
+    let query = parts.uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+    if let Ok(uri) = format!("{path}{query}").parse::<Uri>() {
+        parts.uri = uri;
+    }
+
+    Request::from_parts(parts, body)
 }
 
 /// Applies the cache policy for a path.
@@ -138,6 +205,73 @@ mod tests {
                 "{path} must be revalidated so an upgrade takes effect immediately"
             );
         }
+    }
+
+    /// Builds a fake export tree under a temporary directory.
+    ///
+    /// `paths` are directories to create; each gets an `index.html`, mirroring
+    /// what `next build` emits with `trailingSlash: true`.
+    fn export_tree(paths: &[&str]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "flux-spa-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+
+        for path in paths {
+            let dir = root.join(path);
+            std::fs::create_dir_all(&dir).expect("creating the fake export");
+            std::fs::write(dir.join("index.html"), "<!doctype html>").expect("writing a document");
+        }
+        root
+    }
+
+    #[test]
+    fn a_run_id_resolves_to_the_placeholder_document() {
+        let root = export_tree(&["runs", "runs/__id__"]);
+
+        assert_eq!(
+            dynamic_route_target(&root, "/runs/8f14e45f-ceea-467a-9ba5-000000000000/"),
+            Some("/runs/__id__/".to_string())
+        );
+    }
+
+    #[test]
+    fn a_real_route_is_never_rewritten() {
+        // `/runs/` is a page in its own right; rewriting it to `/__id__/` would
+        // replace the history table with a run view of nothing.
+        let root = export_tree(&["runs", "runs/__id__", "flows"]);
+
+        assert_eq!(dynamic_route_target(&root, "/runs/"), None);
+        assert_eq!(dynamic_route_target(&root, "/flows/"), None);
+        assert_eq!(dynamic_route_target(&root, "/"), None);
+    }
+
+    #[test]
+    fn a_nested_dynamic_route_resolves_before_its_parent() {
+        // Milestone 3 adds /runs/<id>/report; it must not be answered with the
+        // run view just because that also matches one segment earlier.
+        let root = export_tree(&["runs", "runs/__id__", "runs/__id__/report"]);
+
+        assert_eq!(
+            dynamic_route_target(&root, "/runs/abc/report/"),
+            Some("/runs/__id__/report/".to_string())
+        );
+    }
+
+    #[test]
+    fn a_path_with_no_placeholder_document_is_left_to_the_ordinary_fallback() {
+        let root = export_tree(&["runs", "runs/__id__"]);
+        assert_eq!(dynamic_route_target(&root, "/nonsense/deep/path/"), None);
+    }
+
+    #[test]
+    fn an_asset_request_is_not_treated_as_a_dynamic_route() {
+        // Assets are files, not directories with an index; the rewrite must not
+        // fire for them or every chunk would 404.
+        let root = export_tree(&["runs", "runs/__id__"]);
+        assert_eq!(dynamic_route_target(&root, "/_next/static/chunks/main.js"), None);
     }
 
     #[test]

@@ -17,6 +17,7 @@
     "next": "15.5.22",
     "react": "19.2.0",
     "react-dom": "19.2.0",
+    "uplot": "^1.6.32",
     "zod": "^4.4.3"
   },
   "devDependencies": {

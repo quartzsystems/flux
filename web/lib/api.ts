@@ -11,19 +11,27 @@ import { z } from 'zod';
 
 import {
   errorBodySchema,
+  flowPreviewSchema,
+  flowSchema,
   healthSchema,
   hugepagesStatusSchema,
   meSchema,
   portGroupSchema,
   portSchema,
   reservationSchema,
+  runDetailSchema,
+  runPageSchema,
+  testSchema,
   userSchema,
   type CreateUserRequest,
   type FieldError,
+  type FlowInput,
   type HugepageSize,
   type LoginRequest,
   type PortUpdate,
   type ReserveRequest,
+  type RunState,
+  type TestInput,
   type UpdateUserRequest,
 } from './api-types';
 
@@ -196,6 +204,115 @@ export const api = {
     remove: (id: string) => request(`/users/${id}`, { method: 'DELETE' }),
   },
 
+  flows: {
+    /** Every flow. */
+    list: (signal?: AbortSignal) =>
+      request('/flows', { schema: z.array(flowSchema), signal }),
+
+    /** One flow. */
+    get: (id: string, signal?: AbortSignal) =>
+      request(`/flows/${id}`, { schema: flowSchema, signal }),
+
+    /** Creates a flow. */
+    create: (body: FlowInput) =>
+      request('/flows', { method: 'POST', body, schema: flowSchema }),
+
+    /** Replaces a flow. */
+    update: (id: string, body: FlowInput) =>
+      request(`/flows/${id}`, { method: 'PUT', body, schema: flowSchema }),
+
+    /** Deletes a flow. */
+    remove: (id: string) => request(`/flows/${id}`, { method: 'DELETE' }),
+
+    /**
+     * Renders what a flow would put on the wire, without saving it.
+     *
+     * The editor calls this on every change, so it is deliberately a read: it
+     * touches no state and a failure means the flow is invalid, not that
+     * anything broke.
+     */
+    preview: (body: FlowInput, signal?: AbortSignal) =>
+      request('/flows/preview', {
+        method: 'POST',
+        body,
+        schema: flowPreviewSchema,
+        signal,
+      }),
+  },
+
+  tests: {
+    /** Every test. */
+    list: (signal?: AbortSignal) =>
+      request('/tests', { schema: z.array(testSchema), signal }),
+
+    /** One test. */
+    get: (id: string, signal?: AbortSignal) =>
+      request(`/tests/${id}`, { schema: testSchema, signal }),
+
+    /** Creates a test. */
+    create: (body: TestInput) =>
+      request('/tests', { method: 'POST', body, schema: testSchema }),
+
+    /** Replaces a test. */
+    update: (id: string, body: TestInput) =>
+      request(`/tests/${id}`, { method: 'PUT', body, schema: testSchema }),
+
+    /** Deletes a test. */
+    remove: (id: string) => request(`/tests/${id}`, { method: 'DELETE' }),
+
+    /** Starts a run and returns its id. */
+    run: (id: string, dutMeta?: Record<string, unknown>) =>
+      request(`/tests/${id}/run`, {
+        method: 'POST',
+        body: { dutMeta: dutMeta ?? {} },
+        schema: z.object({ runId: z.string() }),
+      }),
+  },
+
+  runs: {
+    /** Run history, newest first. */
+    list: (
+      params: { state?: RunState; testId?: string; limit?: number; offset?: number } = {},
+      signal?: AbortSignal,
+    ) => {
+      const query = new URLSearchParams();
+      if (params.state) query.set('state', params.state);
+      if (params.testId) query.set('testId', params.testId);
+      if (params.limit !== undefined) query.set('limit', String(params.limit));
+      if (params.offset !== undefined) query.set('offset', String(params.offset));
+
+      const suffix = query.toString();
+      return request(`/runs${suffix ? `?${suffix}` : ''}`, {
+        schema: runPageSchema,
+        signal,
+      });
+    },
+
+    /** One run with its trials. */
+    get: (id: string, signal?: AbortSignal) =>
+      request(`/runs/${id}`, { schema: runDetailSchema, signal }),
+
+    /** Asks an in-flight run to stop. */
+    stop: (id: string) => request(`/runs/${id}/stop`, { method: 'POST' }),
+  },
+
+  debug: {
+    /** Injects loss into a simulated engine. Mock mode only. */
+    setLoss: (groupId: string, lossPct: number) =>
+      request(`/debug/engines/${groupId}/loss`, {
+        method: 'POST',
+        body: { lossPct },
+        schema: z.object({ lossPct: z.number() }),
+      }),
+
+    /** Sets a simulated engine's latency distribution. Mock mode only. */
+    setLatency: (groupId: string, medianUs: number, sigma: number) =>
+      request(`/debug/engines/${groupId}/latency`, {
+        method: 'POST',
+        body: { medianUs, sigma },
+      }),
+  },
+
   system: {
     /** The appliance health report. */
     health: (signal?: AbortSignal) =>
@@ -222,4 +339,10 @@ export const queryKeys = {
   portGroups: ['port-groups'] as const,
   users: ['users'] as const,
   health: ['health'] as const,
+  flows: ['flows'] as const,
+  flow: (id: string) => ['flows', id] as const,
+  tests: ['tests'] as const,
+  test: (id: string) => ['tests', id] as const,
+  runs: ['runs'] as const,
+  run: (id: string) => ['runs', id] as const,
 };

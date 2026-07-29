@@ -247,5 +247,382 @@ export const healthSchema = z.object({
   disks: z.array(diskUsageSchema),
   memoryTotalBytes: z.number(),
   memoryAvailableBytes: z.number(),
+  engineInstances: z.number(),
+  collectorsActive: z.number(),
+  activeRuns: z.number(),
 });
 export type Health = z.infer<typeof healthSchema>;
+
+// ---------------------------------------------------------------------------
+// Flows — flux_core::flow
+// ---------------------------------------------------------------------------
+
+/** `flux_core::flow::EthernetFields` */
+export const ethernetFieldsSchema = z.object({
+  src: z.string(),
+  dst: z.string(),
+  ethertype: z.number().optional(),
+});
+
+/** `flux_core::flow::VlanFields` */
+export const vlanFieldsSchema = z.object({
+  id: z.number(),
+  pcp: z.number().default(0),
+  dei: z.boolean().default(false),
+  tpid: z.number().default(0x8100),
+});
+
+/** `flux_core::flow::Ipv4Fields` */
+export const ipv4FieldsSchema = z.object({
+  src: z.string(),
+  dst: z.string(),
+  ttl: z.number().default(64),
+  dscp: z.number().default(0),
+  ecn: z.number().default(0),
+  identification: z.number().default(0),
+  dontFragment: z.boolean().default(false),
+  protocol: z.number().optional(),
+});
+
+/** `flux_core::flow::Ipv6Fields` */
+export const ipv6FieldsSchema = z.object({
+  src: z.string(),
+  dst: z.string(),
+  hopLimit: z.number().default(64),
+  trafficClass: z.number().default(0),
+  flowLabel: z.number().default(0),
+  nextHeader: z.number().optional(),
+});
+
+/** `flux_core::flow::TcpFields` */
+export const tcpFieldsSchema = z.object({
+  srcPort: z.number(),
+  dstPort: z.number(),
+  seq: z.number().default(0),
+  ack: z.number().default(0),
+  flags: z.number().default(2),
+  window: z.number().default(8192),
+});
+
+/** `flux_core::flow::UdpFields` */
+export const udpFieldsSchema = z.object({
+  srcPort: z.number(),
+  dstPort: z.number(),
+});
+
+/** `flux_core::flow::CustomFields` */
+export const customFieldsSchema = z.object({ hex: z.string() });
+
+/**
+ * `flux_core::flow::HeaderLayer`
+ *
+ * A discriminated union on `proto`, matching serde's `tag`/`content` encoding.
+ */
+export const headerLayerSchema = z.discriminatedUnion('proto', [
+  z.object({ proto: z.literal('ethernet'), fields: ethernetFieldsSchema }),
+  z.object({ proto: z.literal('vlan'), fields: vlanFieldsSchema }),
+  z.object({ proto: z.literal('ipv4'), fields: ipv4FieldsSchema }),
+  z.object({ proto: z.literal('ipv6'), fields: ipv6FieldsSchema }),
+  z.object({ proto: z.literal('tcp'), fields: tcpFieldsSchema }),
+  z.object({ proto: z.literal('udp'), fields: udpFieldsSchema }),
+  z.object({ proto: z.literal('custom'), fields: customFieldsSchema }),
+]);
+export type HeaderLayer = z.infer<typeof headerLayerSchema>;
+
+/** The protocols a header layer can be. */
+export type HeaderProto = HeaderLayer['proto'];
+
+/** `flux_core::flow::ImixPreset` */
+export const imixPresetSchema = z.enum(['simple', 'tolly']);
+export type ImixPreset = z.infer<typeof imixPresetSchema>;
+
+/** `flux_core::flow::FrameSize` */
+export const frameSizeSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('fixed'), bytes: z.number() }),
+  z.object({ type: z.literal('imix'), preset: imixPresetSchema }),
+  z.object({ type: z.literal('random'), min: z.number(), max: z.number() }),
+]);
+export type FrameSize = z.infer<typeof frameSizeSchema>;
+
+/** `flux_core::flow::Rate` */
+export const rateSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('pps'), value: z.number() }),
+  z.object({ type: z.literal('bps'), value: z.number() }),
+  z.object({ type: z.literal('percent'), value: z.number() }),
+]);
+export type Rate = z.infer<typeof rateSchema>;
+
+/** `flux_core::flow::ModifierField` */
+export const modifierFieldSchema = z.enum([
+  'eth_src',
+  'eth_dst',
+  'vlan_id',
+  'ipv4_src',
+  'ipv4_dst',
+  'ipv6_src',
+  'ipv6_dst',
+  'l4_src_port',
+  'l4_dst_port',
+]);
+export type ModifierField = z.infer<typeof modifierFieldSchema>;
+
+/** `flux_core::flow::ModifierMode` */
+export const modifierModeSchema = z.enum(['increment', 'random']);
+export type ModifierMode = z.infer<typeof modifierModeSchema>;
+
+/** `flux_core::flow::Modifier` */
+export const modifierSchema = z.object({
+  field: modifierFieldSchema,
+  mode: modifierModeSchema,
+  count: z.number(),
+  step: z.number().default(1),
+});
+export type Modifier = z.infer<typeof modifierSchema>;
+
+/** `flux_core::flow::FlowConfig` */
+export const flowConfigSchema = z.object({
+  txPort: z.string(),
+  rxPort: z.string(),
+  headers: z.array(headerLayerSchema),
+  size: frameSizeSchema,
+  rate: rateSchema,
+  modifiers: z.array(modifierSchema).default([]),
+  durationSecs: z.number().nullable().optional(),
+  latencyTrack: z.boolean().default(false),
+});
+export type FlowConfig = z.infer<typeof flowConfigSchema>;
+
+/** `fluxd::store::models::Flow` */
+export const flowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  // Parsed leniently: a flow written by a newer daemon should still list.
+  config: z.unknown(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Flow = z.infer<typeof flowSchema>;
+
+/** `fluxd::api::flows::FlowInput` */
+export interface FlowInput {
+  name: string;
+  config: FlowConfig;
+}
+
+/** `flux_core::rate::ResolvedRate` */
+export const resolvedRateSchema = z.object({
+  pps: z.number(),
+  bpsL1: z.number(),
+  bpsL2: z.number(),
+  linePct: z.number(),
+});
+export type ResolvedRate = z.infer<typeof resolvedRateSchema>;
+
+/** `fluxd::api::flows::FramePreview` */
+export const framePreviewSchema = z.object({
+  wireLen: z.number(),
+  bytes: z.array(z.number()),
+  hexDump: z.string(),
+});
+export type FramePreview = z.infer<typeof framePreviewSchema>;
+
+/** `fluxd::api::flows::FlowPreview` */
+export const flowPreviewSchema = z.object({
+  frames: z.array(framePreviewSchema),
+  headerBytes: z.number(),
+  rate: resolvedRateSchema,
+  portSpeedMbps: z.number(),
+  exceedsLineRate: z.boolean(),
+  variantCount: z.number(),
+  summary: z.string(),
+});
+export type FlowPreview = z.infer<typeof flowPreviewSchema>;
+
+// ---------------------------------------------------------------------------
+// Tests — fluxd::api::tests
+// ---------------------------------------------------------------------------
+
+/** `flux_core::types::TestType` */
+export const testTypeSchema = z.enum([
+  'manual',
+  'rfc2544_throughput',
+  'rfc2544_latency',
+  'rfc2544_frameloss',
+  'rfc2544_b2b',
+]);
+export type TestType = z.infer<typeof testTypeSchema>;
+
+/** `fluxd::store::models::Test` */
+export const testSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: testTypeSchema,
+  config: z.unknown(),
+  flowIds: z.array(z.string()),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Test = z.infer<typeof testSchema>;
+
+/** `fluxd::api::tests::TestInput` */
+export interface TestInput {
+  name: string;
+  type: TestType;
+  config: Record<string, unknown>;
+  flowIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Runs — fluxd::api::runs
+// ---------------------------------------------------------------------------
+
+/** `flux_core::types::RunState` */
+export const runStateSchema = z.enum([
+  'pending',
+  'validating',
+  'preparing',
+  'running',
+  'analyzing',
+  'complete',
+  'failed',
+  'cancelled',
+]);
+export type RunState = z.infer<typeof runStateSchema>;
+
+/** True when a run can no longer change state. */
+export function isTerminal(state: RunState): boolean {
+  return state === 'complete' || state === 'failed' || state === 'cancelled';
+}
+
+/** `fluxd::store::models::Run` */
+export const runSchema = z.object({
+  id: z.string(),
+  testId: z.string().nullable(),
+  testName: z.string(),
+  type: z.string(),
+  state: runStateSchema,
+  startedBy: z.string().nullable(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  dutMeta: z.unknown(),
+  configSnapshot: z.unknown(),
+  error: z.string().nullable(),
+});
+export type Run = z.infer<typeof runSchema>;
+
+/** `fluxd::store::models::RunResult` */
+export const runResultSchema = z.object({
+  id: z.string(),
+  runId: z.string(),
+  iteration: z.number(),
+  frameSize: z.number().nullable(),
+  params: z.unknown(),
+  metrics: z.unknown(),
+  passed: z.boolean(),
+  createdAt: z.string(),
+});
+export type RunResult = z.infer<typeof runResultSchema>;
+
+/** `fluxd::api::runs::RunPage` */
+export const runPageSchema = z.object({
+  runs: z.array(runSchema),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type RunPage = z.infer<typeof runPageSchema>;
+
+/** `fluxd::api::runs::RunDetail` */
+export const runDetailSchema = runSchema.extend({
+  results: z.array(runResultSchema),
+  stoppable: z.boolean(),
+});
+export type RunDetail = z.infer<typeof runDetailSchema>;
+
+/** The metrics object a manual run records per flow. */
+export const manualMetricsSchema = z.object({
+  txPackets: z.number().default(0),
+  rxPackets: z.number().default(0),
+  lostPackets: z.number().default(0),
+  lossPct: z.number().default(0),
+  latMinUs: z.number().nullable().default(null),
+  latAvgUs: z.number().nullable().default(null),
+  latMaxUs: z.number().nullable().default(null),
+  latP50: z.number().nullable().default(null),
+  latP99: z.number().nullable().default(null),
+  latP999: z.number().nullable().default(null),
+  jitterUs: z.number().nullable().default(null),
+});
+export type ManualMetrics = z.infer<typeof manualMetricsSchema>;
+
+// ---------------------------------------------------------------------------
+// Live statistics — fluxd::collector
+// ---------------------------------------------------------------------------
+
+/** `flux_core::engine::LatencyStats` */
+export const latencyStatsSchema = z.object({
+  minUs: z.number().nullable(),
+  avgUs: z.number().nullable(),
+  maxUs: z.number().nullable(),
+  p50Us: z.number().nullable(),
+  p99Us: z.number().nullable(),
+  p999Us: z.number().nullable(),
+  jitterUs: z.number().nullable(),
+});
+export type LatencyStats = z.infer<typeof latencyStatsSchema>;
+
+/** `fluxd::collector::PortSample` */
+export const portSampleSchema = z.object({
+  txPps: z.number(),
+  rxPps: z.number(),
+  txBps: z.number(),
+  rxBps: z.number(),
+  txPackets: z.number(),
+  rxPackets: z.number(),
+  txErrors: z.number(),
+  rxErrors: z.number(),
+});
+export type PortSample = z.infer<typeof portSampleSchema>;
+
+/** `fluxd::collector::StreamSample` */
+export const streamSampleSchema = z.object({
+  txPps: z.number(),
+  rxPps: z.number(),
+  lossPps: z.number(),
+  lossPct: z.number(),
+  txPackets: z.number(),
+  rxPackets: z.number(),
+  latency: latencyStatsSchema,
+});
+export type StreamSample = z.infer<typeof streamSampleSchema>;
+
+/** `fluxd::collector::RunProgress` */
+export const runProgressSchema = z.object({
+  runId: z.string(),
+  state: z.string(),
+  iteration: z.number().optional(),
+  frameSize: z.number().optional(),
+  trialRatePct: z.number().optional(),
+  trialRemainingSecs: z.number().optional(),
+  progress: z.number().optional(),
+  message: z.string().optional(),
+});
+export type RunProgress = z.infer<typeof runProgressSchema>;
+
+/** `fluxd::collector::StatsBatch` */
+export const statsBatchSchema = z.object({
+  ts: z.number(),
+  ports: z.record(z.string(), portSampleSchema),
+  streams: z.record(z.string(), streamSampleSchema),
+  run: runProgressSchema.optional(),
+});
+export type StatsBatch = z.infer<typeof statsBatchSchema>;
+
+/** Control frames the stream sends alongside batches. */
+export const streamControlSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('subscribed'), selectors: z.array(z.string()), backfill: z.number() }),
+  z.object({ type: z.literal('error'), message: z.string() }),
+]);
+export type StreamControl = z.infer<typeof streamControlSchema>;

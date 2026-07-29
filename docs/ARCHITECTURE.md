@@ -83,8 +83,124 @@ src/
 └── store/          sqlx repositories and migrations
 ```
 
-Milestone 2 adds `engine/` (mock and TRex implementations) and `collector/`;
-milestone 3 adds `orch/`.
+Milestone 3 extends `orch/` with the RFC 2544 state machine.
+
+---
+
+## 2b. The traffic pipeline
+
+A flow travels through four representations, and each boundary exists for a
+reason.
+
+```
+FlowConfig            what the operator configured        (flux-core::flow)
+    │  orch::translate — resolves symbolic fields to offsets
+    ▼
+Vec<StreamSpec>       engine-agnostic programmed streams  (flux-core::engine)
+    │  engine::trex::stream — renders TRex's JSON
+    ▼                 engine::mock — simulates the rate
+TRex stream JSON      what goes over ZMQ
+    ▼
+frames on the wire
+```
+
+`StreamSpec` is the join point. Passing engine-native JSON straight through
+would have been less code, but the mock would then have no idea what rate it had
+been asked for — which is the one thing it exists to simulate.
+
+### The frame builder
+
+`flux_core::frame` turns a header stack into bytes, deriving EtherTypes,
+lengths, and three checksums. It lives in Rust rather than being duplicated in
+the browser: those derived fields are exactly what goes subtly wrong in a second
+implementation, and a preview that disagrees with what the engine transmits is
+worse than no preview. The IPv4 checksum is tested against the RFC 1071 worked
+example, and every checksum is also tested by the property a receiver actually
+checks — that the header sums to zero.
+
+Two conventions matter:
+
+- **Frame size includes the FCS**, per RFC 2544. The builder emits four bytes
+  fewer, because the NIC appends it.
+- **Rates are quoted at layer 1**, including the 7-byte preamble, the SFD, and
+  the 12-byte interframe gap. That is what makes 64-byte frames on a 10G link
+  resolve to 14,880,952 pps rather than 19,531,250.
+
+### Modifier resolution
+
+The flow document names fields symbolically (`ipv4_src`); `orch::translate`
+resolves them to an offset and a width by walking the same header stack the
+builder walks. A modifier pointed at the wrong offset does not fail — it quietly
+corrupts a different field — so a test reads the bytes each modifier points at
+and asserts they are the field it claims.
+
+Widths are 1, 2, or 4 bytes because TRex flow variables come in those sizes
+only. Address modifiers deliberately target the low bytes: the top of a MAC is
+the OUI and the top of an IPv4 address is the network, and a host-emulation
+modifier that walked those would generate traffic for a different network than
+the operator configured.
+
+---
+
+## 2c. Engines
+
+`Engine` has two implementations, selected by `FLUX_ENGINE`.
+
+**`MockEngine`** derives counters from elapsed wall-clock time against the
+configured rate. A 60-second trial takes 60 seconds — the orchestrator's timing,
+the collector's cadence, and the UI's countdown are all worth exercising at
+their real speed — with `FLUX_MOCK_TIMESCALE` for tests that cannot wait. Loss
+is injectable through `/api/v1/debug`, and latency is drawn from a log-normal
+distribution because real forwarding latency is bounded below by the wire and
+tailed above by queueing, which a normal distribution cannot represent.
+
+What the mock does *not* do is model a device under test: received counters are
+transmitted counters minus injected loss. It exercises the pipeline; it does not
+predict a result.
+
+**`TrexEngine`** speaks JSON-RPC over ZeroMQ. Per the milestone plan it is
+structured and unit-tested against a fake transport but not runtime-verified —
+that needs DPDK-capable NICs. Every field name taken from documentation rather
+than from a live instance is marked `TODO(trex-verify)`, and all of them are in
+`engine/trex/`.
+
+Two details worth knowing:
+
+- **Statistics are relative.** TRex counters are cumulative from process start
+  and there is no reset RPC, so `clear_stats` records a baseline and later reads
+  subtract it. RFC 2544 depends on this: a trial must measure the trial.
+- **Calls are batched.** Programming a hundred streams as a hundred round trips
+  is the slowest thing a naive client does, and a REQ socket cannot pipeline.
+
+### Why the actor
+
+A ZeroMQ REQ socket is strictly alternating and cannot be shared. Each instance
+is therefore owned by one task, reached through an `EngineHandle` that sends a
+command and awaits a `oneshot` reply. The `Engine` trait's `Send + Sync` bound
+exists so the *handle* can live in shared state — not so concurrent calls are
+legal.
+
+---
+
+## 2d. The collector
+
+One task per instance, polling at 1 Hz. Counters are differenced against the
+*actual* elapsed time between samples rather than an assumed one second: under
+load it will not be one second, and assuming otherwise makes the charts disagree
+with the totals.
+
+Samples fan out on a `broadcast` channel. WebSocket sessions subscribe to it and
+filter locally — nothing is polled per subscriber. A ring buffer holds the last
+600 samples so a client that connects mid-run renders a full chart immediately
+rather than drawing itself in from the right.
+
+A subscriber that falls behind is dropped rather than buffered, and told why.
+Buffering for a client that cannot keep up with one message a second would grow
+without bound.
+
+Time series go to VictoriaMetrics through the Prometheus exposition line format.
+Failures there are logged and dropped: a gap in a historical graph is a far
+better outcome than stalling the collector, which also feeds the live stream.
 
 ---
 
@@ -223,12 +339,39 @@ chain.
 Login spends one Argon2 verification whether or not the username exists, and
 returns one message either way, so response latency does not enumerate accounts.
 
+### The statistics WebSocket
+
+A client connects, subscribes, and receives one message a second:
+
+```json
+{ "subscribe": ["port:*", "stream:run:<runId>", "run:<runId>"] }
+```
+
+Selectors it does not recognise are ignored rather than rejected, so a client
+built against a newer server still gets the series this build knows about. A run
+selector *scopes* everything: a client watching one run does not receive another
+run's ports just because it also said `port:*`.
+
+A batch that matches nothing is not sent at all, so an idle subscriber is not
+woken every second to be handed an empty object.
+
 ### Serving the UI
 
 The UI is a static export (`output: 'export'`, `trailingSlash: true`). `fluxd`
 serves it with a directory-index-aware file service falling back to the root
 document, so a deep link the export did not pre-render still reaches the
 client-side router.
+
+**Dynamic routes.** A run's id does not exist at build time, but a static export
+must know every path. The export therefore emits one document per dynamic route
+under a placeholder segment (`/runs/__id__/`), and `fluxd` maps
+`/runs/<anything>/` onto it by replacing path segments right to left until a
+document matches. A path that already resolves to a real file is never
+rewritten, so `/runs/` still serves the history table. The client reads the
+actual id from `window.location`.
+
+The alternative — `/runs/detail?id=…` — needs no server-side mapping but gives
+up readable, linkable URLs. The mapping is about twenty lines and six tests.
 
 Cache policy is split: content-hashed output under `/_next/static` is
 `immutable`, everything else is `no-store`. Without that split, an upgraded
@@ -378,3 +521,25 @@ no `unwrap`/`expect` on request or engine control paths, and a tracing span with
 | sqlx queries | Compile-time checked (`query!`) | Runtime checked (`query_as`) | `cargo build` must not require a live Postgres. Upgrade path documented in `store/mod.rs`. |
 | Next.js version | 14+ | 15.5 | Current stable line; App Router and static export unchanged. |
 | Postgres version | 16 | 16+ (developed against 18) | No version-specific features are used. |
+| ZeroMQ crate | `zmq` / `tmq` | `zeromq` (pure Rust) | `zmq` links libzmq, which without a system package must be built from source by cmake — making `cargo build` fail on any machine without a C toolchain, including CI. The protocol on the wire is identical and the choice is isolated behind `engine::trex::transport::RpcTransport`. |
+| Frame hex preview | Client-side render | `POST /flows/preview` | The preview needs EtherTypes, lengths, and three checksums. Duplicating that in TypeScript means two implementations that will disagree, and the one that matters is the one the engine uses. |
+
+---
+
+## 11. Milestone status
+
+| | Delivered |
+|---|---|
+| **1** | Workspace, API, auth and sessions, users, migrations, port model with `flux-portd`, dashboard and ports pages |
+| **2** | Flow documents, frame builder, rate maths, `Engine` with both implementations, translator, collector, WebSocket stream, manual test type, run lifecycle, flow editor, tests page, run history, live run view |
+| **3** | RFC 2544 throughput / latency / frame-loss / back-to-back, the search as a pure function, reports, pcap import, reservations UI |
+| **4** | ASTF and L4-7 profiles, analytics, TLS and settings, config export/import, port-group relaunch, deployment polish |
+
+### Known gaps
+
+- **`TrexEngine` is unverified against a live TRex.** Structured, unit-tested,
+  and marked; running it needs DPDK-capable hardware.
+- **The database has not been exercised end to end.** The schema, migrations,
+  and repositories are written and the daemon fails cleanly without them, but
+  no run has been recorded against a real Postgres in this environment. See
+  the README for the one command that provisions it.

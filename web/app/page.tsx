@@ -33,9 +33,16 @@ import {
   Surface,
   TableSkeleton,
 } from '@/components/ui';
+import { runStateTone } from './runs/page';
 import { api, queryKeys } from '@/lib/api';
-import type { Health, SubsystemHealth } from '@/lib/api-types';
-import { formatBytes, formatDuration, formatSpeed, formatTimestamp } from '@/lib/format';
+import { isTerminal, type Health, type Run, type SubsystemHealth } from '@/lib/api-types';
+import {
+  formatBytes,
+  formatDuration,
+  formatRelative,
+  formatSpeed,
+  formatTimestamp,
+} from '@/lib/format';
 
 export default function DashboardPage() {
   return (
@@ -171,20 +178,108 @@ function Dashboard() {
         </div>
       </Surface>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
-        <Surface title="Active runs">
-          <p className="dim" style={{ margin: 0, fontSize: 13 }}>
-            Test execution arrives in milestone 3. Once it does, runs in flight appear here with
-            their live progress.
-          </p>
-        </Surface>
+      <RunPanels />
+    </div>
+  );
+}
 
-        <Surface title="Recent results">
-          <p className="dim" style={{ margin: 0, fontSize: 13 }}>
-            Completed runs and their pass/fail summary will be listed here.
-          </p>
-        </Surface>
+/** Active runs on the left, recent history on the right. */
+function RunPanels() {
+  const recent = useQuery({
+    queryKey: [...queryKeys.runs, 'dashboard'],
+    queryFn: ({ signal }) => api.runs.list({ limit: 8 }, signal),
+    // Poll while anything is in flight, and stop when nothing is.
+    refetchInterval: (query) =>
+      (query.state.data?.runs ?? []).some((r) => !isTerminal(r.state)) ? 3_000 : 20_000,
+  });
+
+  const runs = recent.data?.runs ?? [];
+  const active = runs.filter((r) => !isTerminal(r.state));
+  const finished = runs.filter((r) => isTerminal(r.state));
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+        gap: 14,
+      }}
+    >
+      <Surface
+        title="Active runs"
+        actions={
+          <Link href="/runs/" className="btn btn-ghost btn-sm">
+            All runs
+          </Link>
+        }
+        padded={false}
+      >
+        <RunList
+          runs={active}
+          loading={recent.isLoading}
+          empty="Nothing is running. Start a test from the tests page."
+        />
+      </Surface>
+
+      <Surface title="Recent results" padded={false}>
+        <RunList
+          runs={finished}
+          loading={recent.isLoading}
+          empty="No completed runs yet."
+        />
+      </Surface>
+    </div>
+  );
+}
+
+/** A compact list of runs, shared by both dashboard panels. */
+function RunList({
+  runs,
+  loading,
+  empty,
+}: {
+  runs: Run[];
+  loading: boolean;
+  empty: string;
+}) {
+  if (loading) {
+    return (
+      <div className="stack gap-8" style={{ padding: 16 }}>
+        <Skeleton height={14} />
+        <Skeleton height={14} />
       </div>
+    );
+  }
+
+  if (runs.length === 0) {
+    return (
+      <p className="dim" style={{ margin: 0, padding: 16, fontSize: 13 }}>
+        {empty}
+      </p>
+    );
+  }
+
+  return (
+    <div className="qz-table-wrap">
+      <table className="qz-table">
+        <tbody>
+          {runs.map((run) => (
+            <tr key={run.id}>
+              <td className="mono">
+                <Link href={`/runs/${run.id}/`} style={{ color: 'var(--qz-accent)' }}>
+                  {run.testName}
+                </Link>
+              </td>
+              <td>
+                <Badge tone={runStateTone(run.state)}>{run.state}</Badge>
+              </td>
+              <td className="dim" style={{ fontSize: 12, textAlign: 'right' }}>
+                {formatRelative(run.startedAt)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
