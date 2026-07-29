@@ -52,7 +52,13 @@ impl Allowlist {
         Ok(Self { allowed })
     }
 
-    /// Builds an allowlist directly, for tests and for the in-process fake.
+    /// Builds an allowlist directly, without a file.
+    ///
+    /// Test-only. The running helper has exactly one way to learn what it may
+    /// touch — reading the file at a path it was told — and a second constructor
+    /// reachable from the binary would be a second way for that policy to be
+    /// set.
+    #[cfg(test)]
     pub fn from_addrs(addrs: impl IntoIterator<Item = PciAddr>) -> Self {
         Self { allowed: addrs.into_iter().collect() }
     }

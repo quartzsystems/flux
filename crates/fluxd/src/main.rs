@@ -168,7 +168,9 @@ async fn main() -> anyhow::Result<()> {
 
         if !config.is_fully_mocked() {
             tracing::warn!(
-                "serving plain HTTP; the session cookie is a bearer credential,                  so install a certificate under Settings before using this appliance                  on a shared network"
+                "serving plain HTTP; the session cookie is a bearer credential, so \
+                 install a certificate under Settings before using this appliance on \
+                 a shared network"
             );
         }
 

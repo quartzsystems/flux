@@ -60,5 +60,18 @@ async fn main() -> anyhow::Result<()> {
         "flux-portd starting"
     );
 
+    // An empty allowlist is not an error — refusing everything is a legitimate,
+    // if useless, policy — but it is almost never what the operator meant, and
+    // it presents as hardware that will not bind. `load` already refuses a
+    // missing file for exactly this reason; an empty `allow:` produces the same
+    // symptom and needs saying just as loudly.
+    if allowlist.is_empty() {
+        tracing::warn!(
+            config = %config_path.display(),
+            "the allowlist is empty: every bind and unbind will be refused. \
+             List the data-plane NICs under `allow:` — but never the management NIC"
+        );
+    }
+
     server::serve(socket_path, allowlist).await
 }
