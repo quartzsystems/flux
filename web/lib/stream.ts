@@ -93,7 +93,7 @@ export function useStatsStream(selectors: string[], enabled = true): StatsStream
       // Same origin as the page: in production fluxd serves both, and in
       // development the Next dev server proxies /api through to it.
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/v1/stream/`);
+      const ws = new WebSocket(`${protocol}//${window.location.host}/api/v1/stream`);
       socket.current = ws;
 
       ws.onopen = () => {

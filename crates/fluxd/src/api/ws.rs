@@ -33,8 +33,13 @@ use crate::collector::StatsBatch;
 use crate::state::AppState;
 
 /// Mounts the stream route.
+///
+/// Both spellings are registered. Nesting a route at `/` matches the parent
+/// path without a trailing slash only, and the UI is built with
+/// `trailingSlash: true` — so a client that appends one to every path would
+/// otherwise get a 404 that looks like a routing bug rather than a slash.
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(upgrade))
+    Router::new().route("/", get(upgrade)).route("/{*rest}", get(upgrade))
 }
 
 /// What a client asks for after connecting.

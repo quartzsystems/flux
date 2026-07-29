@@ -253,7 +253,7 @@ impl MockEngine {
             let loss = self.controls.get().loss_pct / 100.0;
 
             for stream in &port.streams {
-                let frames = stream.pps * transmit.multiplier * seconds;
+                let frames = capped(stream, transmit.multiplier * seconds);
 
                 // Byte counts are derived from the whole-frame count, not from
                 // the fractional one. A NIC counts frames it actually sent, so
@@ -290,7 +290,7 @@ impl MockEngine {
             let seconds = self.elapsed(transmit);
 
             for stream in port.streams.iter().filter(|s| s.pg_id == pgid) {
-                let frames = stream.pps * transmit.multiplier * seconds;
+                let frames = capped(stream, transmit.multiplier * seconds);
                 let sent = frames as u64;
                 let received = (frames * (1.0 - loss)) as u64;
 
@@ -362,7 +362,7 @@ impl MockEngine {
 
         let mut per_group: HashMap<u32, PgidStats> = port.settled_pgids.clone();
         for stream in &port.streams {
-            let frames = stream.pps * transmit.multiplier * seconds;
+            let frames = capped(stream, transmit.multiplier * seconds);
             let sent = frames as u64;
             let received = (frames * (1.0 - loss)) as u64;
 
@@ -377,6 +377,19 @@ impl MockEngine {
         port.settled = totals;
         port.settled_pgids = per_group;
         port.transmit = None;
+    }
+}
+
+/// How many frames a stream has sent after `scaled_seconds` of transmission.
+///
+/// A stream with a frame budget stops when it is spent, which is what makes the
+/// back-to-back test measurable: the trial sends exactly the burst it was asked
+/// for and then goes quiet, rather than transmitting for the whole window.
+fn capped(stream: &StreamSpec, scaled_seconds: f64) -> f64 {
+    let frames = stream.pps * scaled_seconds;
+    match stream.total_packets {
+        Some(budget) => frames.min(budget as f64),
+        None => frames,
     }
 }
 
@@ -841,6 +854,43 @@ mod tests {
 
         engine.controls().set_link_down(EnginePortId(1), false);
         assert!(engine.port_status().await.unwrap()[1].link_up);
+    }
+
+    #[tokio::test]
+    async fn a_stream_with_a_frame_budget_stops_once_it_is_spent() {
+        // The back-to-back test depends on this: the trial must send exactly the
+        // burst it asked for, then go quiet, or the measurement is of the
+        // window rather than of the burst.
+        let engine = MockEngine::new(EngineMode::Stl, 1);
+        engine.acquire(&[EnginePortId(0)], false).await.unwrap();
+
+        let mut burst = stream(1, 1_000_000.0);
+        burst.total_packets = Some(5_000);
+        engine.add_streams(EnginePortId(0), vec![burst]).await.unwrap();
+        engine.start_traffic(&[EnginePortId(0)], StartOptions::default()).await.unwrap();
+
+        // At a million packets a second, 5,000 frames take 5 ms.
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        let first = engine.port_stats(&[EnginePortId(0)]).await.unwrap()[0].tx_packets;
+        assert_eq!(first, 5_000, "the budget is the ceiling");
+
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        let second = engine.port_stats(&[EnginePortId(0)]).await.unwrap()[0].tx_packets;
+        assert_eq!(second, 5_000, "and it does not creep past it");
+    }
+
+    #[tokio::test]
+    async fn a_stream_without_a_budget_transmits_indefinitely() {
+        let engine = armed(1_000_000.0).await;
+        engine.start_traffic(&[EnginePortId(0)], StartOptions::default()).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        let first = engine.port_stats(&[EnginePortId(0)]).await.unwrap()[0].tx_packets;
+
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        let second = engine.port_stats(&[EnginePortId(0)]).await.unwrap()[0].tx_packets;
+
+        assert!(second > first, "an unbudgeted stream keeps counting");
     }
 
     #[tokio::test]

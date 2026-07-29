@@ -28,6 +28,44 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list))
         .route("/{id}", get(get_one))
         .route("/{id}/stop", post(stop))
+        .route("/{id}/report", get(report))
+}
+
+/// Renders a run as a self-contained printable HTML document.
+///
+/// Served as a document rather than as JSON because it is an artefact people
+/// archive and print. `Content-Disposition: inline` so a browser shows it;
+/// the filename is there for whoever saves it.
+async fn report(
+    State(state): State<AppState>,
+    _auth: Auth,
+    Path(id): Path<Id>,
+) -> ApiResult<axum::response::Response> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+
+    let run = runs::get(state.store.pool(), id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("run {id}")))?;
+    let results = runs::results(state.store.pool(), id).await?;
+
+    let input = super::report::ReportInput {
+        run: &run,
+        results: &results,
+        version: super::system::VERSION,
+    };
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("inline; filename=\"{}\"", input.filename()),
+            ),
+        ],
+        input.render(),
+    )
+        .into_response())
 }
 
 /// Filters and pagination for the history.

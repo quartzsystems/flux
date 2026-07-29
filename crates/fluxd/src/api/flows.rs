@@ -22,7 +22,73 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list).post(create))
         .route("/preview", post(preview))
+        .route("/import-pcap", post(import_pcap))
         .route("/{id}", get(get_one).put(update).delete(delete))
+}
+
+/// What a capture decoded to.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PcapImport {
+    /// The decoded header stack, ready to drop into the editor.
+    pub headers: Vec<flux_core::flow::HeaderLayer>,
+    /// Frame length as captured.
+    pub captured_len: u32,
+    /// Frame length on the wire, which may exceed what was captured.
+    pub original_len: u32,
+    /// Anything that was approximated or dropped in the decode.
+    pub notes: Vec<String>,
+}
+
+/// Derives a header stack from the first packet of an uploaded capture.
+///
+/// Returns a stack rather than creating a flow: the operator still has to
+/// choose ports and a rate, and will usually want to adjust an address or two
+/// before saving. Importing straight to a stored flow would skip the review.
+#[tracing::instrument(skip_all)]
+async fn import_pcap(
+    State(_state): State<AppState>,
+    OperatorAuth(actor): OperatorAuth,
+    mut multipart: axum::extract::Multipart,
+) -> ApiResult<Json<PcapImport>> {
+    let mut data: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("could not read the upload: {e}")))?
+    {
+        // Accept whatever field carries bytes: browsers and curl disagree about
+        // what to call it, and there is only ever one file in this request.
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|e| ApiError::BadRequest(format!("could not read the file: {e}")))?;
+
+        if !bytes.is_empty() {
+            data = Some(bytes.to_vec());
+            break;
+        }
+    }
+
+    let data = data.ok_or_else(|| ApiError::field("file", "no file was uploaded"))?;
+
+    let imported = super::pcap::import(&data)
+        .map_err(|e| ApiError::field("file", e.to_string()))?;
+
+    tracing::info!(
+        actor = %actor.username,
+        layers = imported.headers.len(),
+        captured_len = imported.captured_len,
+        "imported a header stack from a capture"
+    );
+
+    Ok(Json(PcapImport {
+        headers: imported.headers,
+        captured_len: imported.captured_len,
+        original_len: imported.original_len,
+        notes: imported.notes,
+    }))
 }
 
 /// Every flow.

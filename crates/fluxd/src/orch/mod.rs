@@ -5,11 +5,12 @@
 //! the ports, programming streams, driving the engine, and recording what came
 //! back.
 //!
-//! Milestone 2 implements the manual test type — start these flows, stop them
-//! when asked. Milestone 3 adds the RFC 2544 state machine on top, whose search
-//! logic is deliberately a pure function so it can be table-tested without an
-//! engine at all.
+//! The RFC 2544 search in `rfc2544` is deliberately a pure function of the trials
+//! run so far, separated from the async execution loop in `run`, so it can be
+//! table-tested exhaustively without an engine at all.
 
+pub mod rfc2544;
+pub mod statemachine;
 pub mod run;
 pub mod translate;
 

@@ -132,7 +132,9 @@ async fn mock_controls(state: &AppState, group_id: Id) -> ApiResult<MockControls
         ));
     }
 
+    // `ApiError::NotFound` renders as "{0} not found", so this is a noun phrase
+    // rather than a sentence.
     state.mock_controls.read().await.get(&group_id).cloned().ok_or_else(|| {
-        ApiError::NotFound(format!("no simulated engine running for port group {group_id}"))
+        ApiError::NotFound(format!("a running simulated engine for port group {group_id}"))
     })
 }

@@ -15,6 +15,7 @@ pub mod flow;
 pub mod frame;
 pub mod port;
 pub mod rate;
+pub mod rfc2544;
 pub mod types;
 
 pub use types::*;

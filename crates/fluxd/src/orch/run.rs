@@ -18,9 +18,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use flux_core::config::EngineInstanceConfig;
+use flux_core::config::{EngineInstanceConfig, Validate};
 use flux_core::engine::{EnginePortId, PgId, StartOptions};
 use flux_core::flow::FlowConfig;
+use flux_core::rfc2544::Rfc2544Config;
 use flux_core::types::{Id, RunState, TestType};
 use serde_json::json;
 use tokio::sync::RwLock;
@@ -142,17 +143,14 @@ impl RunSupervisor {
         started_by: Option<Id>,
         dut_meta: serde_json::Value,
     ) -> Result<Id, RunError> {
-        if test.test_type != TestType::Manual {
-            return Err(RunError::Invalid(format!(
-                "{} tests arrive in milestone 3",
-                test.test_type
-            )));
-        }
-
         let plan = self.plan(test).await?;
 
         let snapshot = json!({
             "test": { "id": test.id, "name": test.name, "type": test.test_type.as_str() },
+            // The benchmark document travels with the run so a report can state
+            // the trial length and loss tolerance it was measured under, long
+            // after the test itself has been edited or deleted.
+            "rfc2544": plan.rfc2544,
             "flows": plan.flows.iter().map(|f| json!({
                 "id": f.flow.id,
                 "name": f.flow.name,
@@ -272,7 +270,40 @@ impl RunSupervisor {
         let engine_index: HashMap<Id, EnginePortId> =
             member_ids.iter().enumerate().map(|(i, id)| (*id, EnginePortId(i as u8))).collect();
 
-        Ok(RunPlan { group_id, flows: resolved, ports, engine_index, member_ids })
+        // The benchmark document is validated before the run row exists, so a
+        // bad configuration is a rejected request rather than a run that exists
+        // only to record its own impossibility.
+        let rfc2544 = match test.test_type {
+            TestType::Manual => None,
+            _ => {
+                let config: Rfc2544Config =
+                    serde_json::from_value(test.config.clone()).map_err(|e| {
+                        RunError::Invalid(format!("test configuration is unreadable: {e}"))
+                    })?;
+
+                config.validate().map_err(|errors| {
+                    RunError::Invalid(
+                        errors
+                            .iter()
+                            .map(|e| format!("{}: {}", e.path, e.msg))
+                            .collect::<Vec<_>>()
+                            .join("; "),
+                    )
+                })?;
+
+                Some(config)
+            }
+        };
+
+        Ok(RunPlan {
+            group_id,
+            test_type: test.test_type,
+            rfc2544,
+            flows: resolved,
+            ports,
+            engine_index,
+            member_ids,
+        })
     }
 
     /// Drives one run from start to finish.
@@ -374,6 +405,10 @@ impl RunSupervisor {
 
         // Collection starts before traffic does, so the first sample after the
         // start is a real one rather than the difference from nothing.
+        //
+        // The packet-group numbering here is the same one the benchmark loop
+        // reallocates on every trial (flow order, starting at one), so this map
+        // stays correct across a whole RFC 2544 search.
         self.collector
             .start(CollectionTarget {
                 group_id: plan.group_id,
@@ -383,6 +418,28 @@ impl RunSupervisor {
                 run_id: Some(run_id),
             })
             .await;
+
+        // An RFC 2544 test drives the engine itself from here: it reprograms
+        // streams per frame size and moves the multiplier per trial, so the
+        // single start-and-wait below is the manual path only.
+        if let Some(config) = &plan.rfc2544 {
+            self.transition(run_id, RunState::Running, None).await;
+
+            let benchmark = super::statemachine::Benchmark {
+                run_id,
+                test_type: plan.test_type,
+                config: config.clone(),
+                plan,
+                engine,
+                store: &self.store,
+                collector: &self.collector,
+                cancel,
+            };
+            benchmark.run().await?;
+
+            self.transition(run_id, RunState::Analyzing, None).await;
+            return Ok(());
+        }
 
         // A manual test runs until stopped unless a flow set a duration; the
         // shortest one wins, because that flow stopping mid-run would make the
@@ -638,18 +695,29 @@ fn streams_ports(plan: &RunPlan) -> Vec<EnginePortId> {
 }
 
 /// What a test resolves to before anything is programmed.
-struct RunPlan {
-    group_id: Id,
-    flows: Vec<PlannedFlow>,
-    ports: Vec<(EnginePortId, Port)>,
-    engine_index: HashMap<Id, EnginePortId>,
-    member_ids: Vec<Id>,
+pub struct RunPlan {
+    /// Port group the run will use.
+    pub group_id: Id,
+    /// Which kind of test this is.
+    pub test_type: TestType,
+    /// The benchmark configuration, for the four RFC 2544 types.
+    pub rfc2544: Option<Rfc2544Config>,
+    /// The flows to drive, with their parsed configuration.
+    pub flows: Vec<PlannedFlow>,
+    /// Engine port index paired with the database row it came from.
+    pub ports: Vec<(EnginePortId, Port)>,
+    /// Maps a database port id onto its engine port number.
+    pub engine_index: HashMap<Id, EnginePortId>,
+    /// Every member of the group, in engine port-number order.
+    pub member_ids: Vec<Id>,
 }
 
 /// One flow with its parsed configuration.
-struct PlannedFlow {
-    flow: Flow,
-    config: FlowConfig,
+pub struct PlannedFlow {
+    /// The stored row.
+    pub flow: Flow,
+    /// Its deserialised configuration.
+    pub config: FlowConfig,
 }
 
 #[cfg(test)]
@@ -686,6 +754,8 @@ mod tests {
 
         RunPlan {
             group_id: Id::new_v4(),
+            test_type: TestType::Manual,
+            rfc2544: None,
             flows: vec![PlannedFlow {
                 flow: Flow {
                     id: Id::new_v4(),
