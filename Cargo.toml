@@ -3,7 +3,14 @@ resolver = "2"
 members = ["crates/flux-core", "crates/fluxd", "crates/flux-portd"]
 
 [workspace.package]
-version = "0.1.1"
+# Deliberately a placeholder. The appliance's version lives in the VERSION file
+# at the repository root, which crates/flux-core/build.rs reads at compile time —
+# `flux_core::VERSION` and `fluxd --version` both come from there. Cargo cannot
+# read a file into a manifest, so the choice was between duplicating the version
+# here and keeping the two in step, or not duplicating it at all. The first was
+# tried; the copy drifted and blocked releases. Nothing publishes these crates,
+# so the number here is inert. Leave it at 0.0.0.
+version = "0.0.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"

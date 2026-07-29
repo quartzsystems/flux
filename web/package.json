@@ -1,6 +1,7 @@
 {
   "name": "flux-web",
-  "version": "0.1.1",
+  "_version_note": "Placeholder. The real version is in /VERSION; this package is private and nothing reads this field.",
+  "version": "0.0.0",
   "private": true,
   "description": "Flux appliance web UI",
   "scripts": {

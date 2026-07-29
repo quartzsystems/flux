@@ -29,10 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # VERSION is authoritative. Without this check the manifests drift and the
-      # first anyone notices is a tarball whose name disagrees with the binary
-      # inside it.
-      - run: scripts/sync-version.sh --check
+      # VERSION is the only place a version is written. This checks it parses,
+      # and that Cargo.toml and web/package.json still hold their placeholder —
+      # a second copy of the version is the thing being guarded against, not a
+      # second copy that has fallen out of step.
+      - run: scripts/version.sh --check
 
   rust:
     name: rust

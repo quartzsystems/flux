@@ -705,12 +705,23 @@ not survive the restart, so failing them is the honest default.
 `/system/health` and `fluxd --version` — reports what the tree said rather than
 what `Cargo.toml` happened to say.
 
-Cargo and npm both need a literal in their manifest, so those two are written by
-`scripts/sync-version.sh` and checked in CI. The check is what makes VERSION
-authoritative rather than merely first: without it the manifests drift, and the
-first anyone notices is a release tarball whose name disagrees with the binary
-inside it. `scripts/package.sh` refuses to build a tarball whose binaries report
-a different version, which catches the same class of mistake from the other end.
+Cargo and npm both need a literal in their manifest, and Cargo cannot read a
+file. That left two options: duplicate the version and keep the copies in step,
+or refuse to duplicate it. The first was built, and the copy drifted twice —
+both times a version bump reached CI with the manifests a release behind,
+blocking the tag after it had been pushed. A duplicate that has to be maintained
+is a duplicate that will not be.
+
+So both manifests now hold a permanent `0.0.0`. Neither crate is published and
+nothing reads either field, so the number is inert; `scripts/version.sh --check`
+asserts it stays that way, which guards against the duplication being helpfully
+reintroduced. The check is an invariant rather than a comparison, so it never
+needs updating when the version changes — which is precisely why it cannot fail
+the way the comparison did.
+
+`scripts/package.sh` catches the same class of mistake from the other end: it
+refuses to build a tarball whose binaries report a version other than the one
+the tarball is named for.
 
 ### Static binaries
 

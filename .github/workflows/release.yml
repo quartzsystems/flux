@@ -1,6 +1,6 @@
 # Publishes a release when a version tag is pushed.
 #
-#     scripts/sync-version.sh          # after editing VERSION
+#     make release V=0.2.0
 #     git commit -am "Release 0.2.0"
 #     git tag v0.2.0 && git push --tags
 #
@@ -37,7 +37,7 @@ jobs:
           version="$(tr -d '[:space:]' < VERSION)"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-          scripts/sync-version.sh --check
+          scripts/version.sh --check
 
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
             tag="${GITHUB_REF_NAME#v}"

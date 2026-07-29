@@ -493,7 +493,7 @@ impl Engine for MockEngine {
     async fn health(&self) -> Result<EngineHealth, EngineError> {
         Ok(EngineHealth {
             connected: true,
-            version: Some(format!("mock-{}", env!("CARGO_PKG_VERSION"))),
+            version: Some(format!("mock-{}", flux_core::VERSION)),
             mode: self.mode,
             port_count: self.port_count,
             uptime_secs: Some(self.started_at.elapsed().as_secs()),

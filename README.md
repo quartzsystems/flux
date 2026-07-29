@@ -95,27 +95,30 @@ you pass `--allow-downgrade`.
 
 ## Versioning
 
-The `VERSION` file at the repository root is the single source of truth. The
-binaries read it at build time — `fluxd --version` reports what the tree said,
-not what `Cargo.toml` happened to say — and `scripts/sync-version.sh` writes it
-into `Cargo.toml` and `web/package.json`. CI fails if they disagree.
+The `VERSION` file at the repository root is the only place a version is
+written. The binaries read it at build time, so `fluxd --version` reports what
+the tree said rather than what a manifest happened to say, and the release
+tarball is named from the same file.
+
+Nothing else carries a copy. `Cargo.toml` and `web/package.json` hold a
+permanent `0.0.0` placeholder — neither is published and nothing reads either
+field — and `scripts/version.sh --check` fails if anyone puts a real version
+back into them. They used to be kept in step by a sync script; the copy drifted
+twice and blocked two releases, so the duplicate is gone rather than better
+maintained.
 
 Cutting a release:
 
 ```bash
-make release V=0.2.0          # writes VERSION and propagates it in one step
+make release V=0.2.0          # the only file this touches is VERSION
 git commit -am "Release 0.2.0"
 git push                      # let CI go green before tagging
 git tag v0.2.0 && git push --tags
 ```
 
-Raising the version and propagating it are one command deliberately. Doing them
-separately is forgettable, and forgetting means a tag that CI rejects after you
-have already pushed it — recoverable only by moving the tag.
-
-Push the commit before tagging, too. The `version` job on `main` catches drift
-in seconds; the same check inside the release workflow catches it only once the
-tag exists.
+Push the commit before tagging. The `version` job on `main` validates in
+seconds; the same check inside the release workflow runs only once the tag
+exists, and recovering from a rejected tag means moving a published one.
 
 The tag triggers the release workflow, which refuses to publish if the tag and
 `VERSION` disagree, builds both architectures, and attaches the tarballs and
@@ -237,7 +240,6 @@ whole router is absent.
 | `make lint` | `cargo clippy -- -D warnings` |
 | `make web-lint` | ESLint plus `tsc --noEmit` |
 | `make version` | Print the version everything builds from |
-| `make version-sync` | Write `VERSION` into the manifests |
 | `make dist` | Build the release tarball into `dist/` |
 | `make ci` | Everything the pipeline runs |
 

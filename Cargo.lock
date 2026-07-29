@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "flux-core"
-version = "0.1.1"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -564,7 +564,7 @@ dependencies = [
 
 [[package]]
 name = "flux-portd"
-version = "0.1.1"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "flux-core",
@@ -578,7 +578,7 @@ dependencies = [
 
 [[package]]
 name = "fluxd"
-version = "0.1.1"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "argon2",

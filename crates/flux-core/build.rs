@@ -1,11 +1,11 @@
 //! Compiles the appliance version into the binaries.
 //!
 //! The version lives in one place — the `VERSION` file at the repository root —
-//! and everything else derives from it. Cargo cannot read a file into a manifest,
-//! so `Cargo.toml` and `web/package.json` are kept in step by
-//! `scripts/sync-version.sh` and checked in CI. The value the running appliance
-//! reports, however, comes straight from the file, which means a binary can never
-//! disagree with the tree it was built from.
+//! and nothing else carries a copy. Cargo cannot read a file into a manifest, so
+//! `Cargo.toml` holds a permanent `0.0.0` placeholder rather than a number that
+//! would have to be kept in step; `scripts/version.sh --check` enforces that.
+//! What the running appliance reports comes straight from the file, so a binary
+//! can never disagree with the tree it was built from.
 
 use std::path::{Path, PathBuf};
 

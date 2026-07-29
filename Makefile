@@ -11,9 +11,8 @@ CARGO ?= cargo
 NPM   ?= npm
 WEB   := web
 
-# The single source of truth for the version. Everything else derives from it:
-# the binaries read it at build time, and `make version-sync` writes it into
-# Cargo.toml and web/package.json.
+# The single source of truth for the version, and the only place it is written.
+# The binaries read this same file at build time; nothing else carries a copy.
 VERSION := $(shell tr -d '[:space:]' < VERSION)
 
 # Loaded by the dev targets. Copy .env.example to .env and edit DATABASE_URL.
@@ -61,17 +60,10 @@ test: ## Run the Rust test suite
 version: ## Print the version everything is built from
 	@echo $(VERSION)
 
-.PHONY: version-sync
-version-sync: ## Write VERSION into Cargo.toml and web/package.json
-	@scripts/sync-version.sh
-
-# One command, because editing VERSION and remembering to propagate it are two,
-# and the second one is forgettable — which is how a tag once reached CI with
-# the manifests still a version behind.
 .PHONY: release
-release: ## Raise the version and propagate it (make release V=0.2.0)
+release: ## Raise the version (make release V=0.2.0)
 	@test -n "$(V)" || { echo "usage: make release V=0.2.0"; exit 1; }
-	@scripts/sync-version.sh --set "$(V)"
+	@scripts/version.sh --set "$(V)"
 	@echo
 	@echo "Now, in order:"
 	@echo "    git commit -am 'Release $(V)'"
@@ -79,8 +71,8 @@ release: ## Raise the version and propagate it (make release V=0.2.0)
 	@echo "    git tag v$(V) && git push --tags    # this publishes the release"
 
 .PHONY: version-check
-version-check: ## Fail if the manifests disagree with VERSION
-	@scripts/sync-version.sh --check
+version-check: ## Validate VERSION, and that nothing else carries a copy of it
+	@scripts/version.sh --check
 
 .PHONY: dist
 dist: build web-build ## Build the release tarball into dist/
