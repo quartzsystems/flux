@@ -11,6 +11,11 @@ CARGO ?= cargo
 NPM   ?= npm
 WEB   := web
 
+# The single source of truth for the version. Everything else derives from it:
+# the binaries read it at build time, and `make version-sync` writes it into
+# Cargo.toml and web/package.json.
+VERSION := $(shell tr -d '[:space:]' < VERSION)
+
 # Loaded by the dev targets. Copy .env.example to .env and edit DATABASE_URL.
 -include .env
 export
@@ -47,6 +52,26 @@ fmt-check: ## Verify formatting without changing anything
 .PHONY: test
 test: ## Run the Rust test suite
 	$(CARGO) test --workspace
+
+# ---------------------------------------------------------------------------
+# Version and packaging
+# ---------------------------------------------------------------------------
+
+.PHONY: version
+version: ## Print the version everything is built from
+	@echo $(VERSION)
+
+.PHONY: version-sync
+version-sync: ## Write VERSION into Cargo.toml and web/package.json
+	@scripts/sync-version.sh
+
+.PHONY: version-check
+version-check: ## Fail if the manifests disagree with VERSION
+	@scripts/sync-version.sh --check
+
+.PHONY: dist
+dist: build web-build ## Build the release tarball into dist/
+	@scripts/package.sh
 
 # ---------------------------------------------------------------------------
 # Web
@@ -109,9 +134,13 @@ serve: web-build ## Build the UI and serve everything from fluxd alone
 	FLUX_WEB_ROOT=$(CURDIR)/$(WEB)/out $(CARGO) run -p fluxd
 
 .PHONY: ci
-ci: fmt-check lint test web-lint web-build ## Everything CI runs
+ci: version-check fmt-check lint test web-lint web-build install-check ## Everything CI runs
+
+.PHONY: install-check
+install-check: ## Exercise the installer's version and config logic
+	@scripts/test-install.sh
 
 .PHONY: clean
 clean: ## Remove build output
 	$(CARGO) clean
-	rm -rf $(WEB)/.next $(WEB)/out
+	rm -rf $(WEB)/.next $(WEB)/out dist

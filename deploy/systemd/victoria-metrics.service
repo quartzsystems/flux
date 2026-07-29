@@ -1,0 +1,54 @@
+[Unit]
+Description=VictoriaMetrics time series database for Flux
+Documentation=https://docs.victoriametrics.com/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=victoria-metrics
+Group=victoria-metrics
+Restart=on-failure
+RestartSec=5s
+
+# Loopback only. Nothing outside this appliance has any business reading the
+# series directly — fluxd is the only writer and the analytics endpoint is the
+# only reader, and both are local.
+#
+# Retention is a floor, not the policy: the appliance's own retention setting
+# governs what is kept, and this is set generously so that lowering the setting
+# is the thing that takes effect rather than a silently shorter ceiling here.
+ExecStart=/usr/bin/victoria-metrics \
+    -storageDataPath=/var/lib/victoria-metrics \
+    -httpListenAddr=127.0.0.1:8428 \
+    -retentionPeriod=12
+
+# --- Hardening --------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete
+
+ReadWritePaths=/var/lib/victoria-metrics
+
+# One file per series per retention period adds up quickly on a busy appliance.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

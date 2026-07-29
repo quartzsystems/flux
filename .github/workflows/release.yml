@@ -1,0 +1,109 @@
+# Publishes a release when a version tag is pushed.
+#
+#     scripts/sync-version.sh          # after editing VERSION
+#     git commit -am "Release 0.2.0"
+#     git tag v0.2.0 && git push --tags
+#
+# The tag is checked against the VERSION file rather than trusted: a release
+# whose tag and contents disagree is worse than no release, because the installer
+# resolves "latest" by tag and then reports whatever the binary says.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build the artifacts but do not publish them
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify the tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: check
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          scripts/sync-version.sh --check
+
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$version" ]; then
+              echo "::error::tag v$tag does not match VERSION ($version)"
+              exit 1
+            fi
+            echo "tag v$tag matches VERSION"
+          fi
+
+  build:
+    needs: verify
+    uses: ./.github/workflows/build.yml
+    with:
+      artifact-name: release
+
+  publish:
+    name: publish
+    needs: [verify, build]
+    if: github.event_name == 'push' || inputs.dry-run == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: staging
+          merge-multiple: true
+
+      # One SHA256SUMS across every architecture, generated here rather than
+      # taken from the per-target builds: install.sh downloads this one file and
+      # looks its own tarball up in it by name.
+      - name: Collect and checksum
+        working-directory: staging
+        run: |
+          set -euo pipefail
+          sha256sum -- *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.verify.outputs.version }}
+          name: Flux ${{ needs.verify.outputs.version }}
+          generate_release_notes: true
+          files: |
+            staging/*.tar.gz
+            staging/SHA256SUMS
+          body: |
+            ## Install
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/deploy/install.sh | sudo bash
+            ```
+
+            Upgrading an existing appliance is the same command. Configuration,
+            the database, and run history are preserved; the database is dumped
+            first, and a start that fails its health check rolls back.
+
+            Binaries are statically linked against musl, so they run on any
+            Debian- or RHEL-based system with systemd — AlmaLinux 9 and 10,
+            Rocky, RHEL, Debian 12, and Ubuntu 22.04 upward.
+
+            Verify a download against `SHA256SUMS` before installing it by hand;
+            the installer does this for you.

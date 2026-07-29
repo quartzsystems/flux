@@ -31,6 +31,13 @@ const DEFAULT_SOCKET: &str = "/run/flux/portd.sock";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Answered before the allowlist is read, so the installer can ask a freshly
+    // placed binary what it is on a machine that has no configuration yet.
+    if std::env::args().skip(1).any(|a| matches!(a.as_str(), "--version" | "-V")) {
+        println!("flux-portd {}", flux_core::VERSION);
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("FLUX_LOG")

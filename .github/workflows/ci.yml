@@ -1,0 +1,209 @@
+# Everything that has to hold before a change lands.
+#
+# `make ci` runs the same Rust and web checks locally; the jobs here add the
+# things that need a Linux machine — shellcheck, and actually running the
+# installer on both distribution families.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  version:
+    name: version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # VERSION is authoritative. Without this check the manifests drift and the
+      # first anyone notices is a tarball whose name disagrees with the binary
+      # inside it.
+      - run: scripts/sync-version.sh --check
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+  web:
+    name: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - working-directory: web
+        run: npm ci
+
+      - name: Type-check
+        working-directory: web
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: web
+        run: npm run lint
+
+      - name: Build the static export
+        working-directory: web
+        run: npm run build
+
+  shell:
+    name: shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck --severity=warning deploy/install.sh scripts/*.sh
+
+      # The installer's reasoning about versions decides whether an upgrade is
+      # allowed at all, so it is tested rather than trusted.
+      - name: Installer logic
+        run: scripts/test-install.sh
+
+  build:
+    name: build
+    needs: [version, rust, web]
+    uses: ./.github/workflows/build.yml
+
+  install:
+    name: install on ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+      options: --user root
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - almalinux:10
+          - almalinux:9
+          - debian:12
+          - ubuntu:24.04
+
+    steps:
+      # A container has no systemd and no PostgreSQL, so this proves what it can:
+      # that the script parses the distribution, unpacks the release, places
+      # every file where it says it does, and that the static binaries actually
+      # execute on that distribution. Starting services is covered by the health
+      # check on a real appliance.
+      - name: Install the tools the script needs
+        run: |
+          if command -v dnf >/dev/null; then
+            dnf install -y tar gzip findutils shadow-utils
+          else
+            apt-get update -qq
+            apt-get install -y --no-install-recommends tar gzip findutils passwd
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts-x86_64-unknown-linux-musl
+          path: dist
+
+      - name: Unpack and run the installer
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/flux
+          tar -xzf dist/*.tar.gz -C /tmp/flux --strip-components=1
+          /tmp/flux/install.sh --no-deps --no-db --no-metrics --no-firewall --no-start
+
+      - name: Check what landed
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < /tmp/flux/VERSION)"
+          fail=0
+          check() {
+            if [ -e "$1" ]; then echo "  ok    $1"; else echo "  FAIL  missing $1"; fail=1; fi
+          }
+
+          check /usr/bin/fluxd
+          check /usr/bin/flux-portd
+          check /usr/share/flux/web/index.html
+          check /etc/flux/fluxd.env
+          check /etc/flux/portd.yaml
+          check /etc/systemd/system/fluxd.service
+          check /etc/systemd/system/flux-portd.service
+          check /var/lib/flux
+          check /var/lib/flux/installed-version
+
+          # The static binaries have to run on this distribution — that is the
+          # whole reason they are built against musl.
+          echo "  fluxd reports: $(/usr/bin/fluxd --version)"
+          [ "$(/usr/bin/fluxd --version)" = "fluxd $version" ] || { echo "  FAIL version"; fail=1; }
+          [ "$(/usr/bin/flux-portd --version)" = "flux-portd $version" ] || { echo "  FAIL version"; fail=1; }
+          [ "$(tr -d '[:space:]' < /var/lib/flux/installed-version)" = "$version" ] \
+            || { echo "  FAIL stamp"; fail=1; }
+
+          # The TLS directory holds a private key, so its mode is part of the
+          # contract rather than an accident of umask.
+          mode="$(stat -c %a /etc/flux/tls)"
+          [ "$mode" = "700" ] || { echo "  FAIL /etc/flux/tls is $mode, expected 700"; fail=1; }
+
+          exit $fail
+
+      - name: Upgrade over the top of itself
+        run: |
+          set -euo pipefail
+          # The second run is the upgrade path: it must keep the configuration
+          # it finds and take a backup of what it replaces.
+          echo "# a local edit" >> /etc/flux/fluxd.env
+          /tmp/flux/install.sh --no-deps --no-db --no-metrics --no-firewall --no-start
+
+          grep -q '^# a local edit$' /etc/flux/fluxd.env \
+            || { echo "FAIL: the upgrade overwrote fluxd.env"; exit 1; }
+          echo "  ok    configuration survived the upgrade"
+
+          ls -d /var/lib/flux/backups/*/ >/dev/null 2>&1 \
+            || { echo "FAIL: no backup was taken"; exit 1; }
+          echo "  ok    a backup was taken"
+
+      - name: Uninstall
+        run: |
+          set -euo pipefail
+          /tmp/flux/install.sh --uninstall
+          [ ! -e /usr/bin/fluxd ] || { echo "FAIL: fluxd survived the uninstall"; exit 1; }
+          [ -e /etc/flux/fluxd.env ] || { echo "FAIL: uninstall took the config with it"; exit 1; }
+          echo "  ok    removed the binaries and kept the configuration"
+
+          /tmp/flux/install.sh --uninstall --purge
+          [ ! -e /etc/flux ] || { echo "FAIL: purge left /etc/flux behind"; exit 1; }
+          [ ! -e /var/lib/flux ] || { echo "FAIL: purge left /var/lib/flux behind"; exit 1; }
+          echo "  ok    purge removed everything"

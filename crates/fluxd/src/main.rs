@@ -38,6 +38,13 @@ const JANITOR_INTERVAL: Duration = Duration::from_secs(600);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Answered before anything else is touched, so the installer can ask a
+    // freshly placed binary what it is without a database, a config file, or a
+    // port helper being in place yet.
+    if report_version_and_exit() {
+        return Ok(());
+    }
+
     init_tracing();
 
     let config = Arc::new(Config::from_env().context("reading configuration")?);
@@ -181,6 +188,20 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("fluxd stopped");
     Ok(())
+}
+
+/// Prints the version if asked for one, and reports whether it did.
+///
+/// Deliberately hand-rolled rather than an argument parser: the daemon takes its
+/// configuration from the environment and has no other flags, so a dependency
+/// here would exist to parse exactly two spellings of one word.
+fn report_version_and_exit() -> bool {
+    let asked = std::env::args().skip(1).any(|arg| matches!(arg.as_str(), "--version" | "-V"));
+
+    if asked {
+        println!("fluxd {}", api::system::VERSION);
+    }
+    asked
 }
 
 /// Configures structured logging.

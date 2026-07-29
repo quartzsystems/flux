@@ -17,8 +17,12 @@ use crate::config::{EngineBackend, PortdBackend};
 use crate::state::AppState;
 use crate::store::ports;
 
-/// Version of the running daemon, stamped in at build time.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The appliance version.
+///
+/// Re-exported from `flux-core`, which reads it from the repository's `VERSION`
+/// file at build time. Deliberately not `CARGO_PKG_VERSION`: that would let the
+/// version this endpoint reports drift from the one the release is named for.
+pub const VERSION: &str = flux_core::VERSION;
 
 /// Mounts the system routes.
 pub fn router() -> Router<AppState> {

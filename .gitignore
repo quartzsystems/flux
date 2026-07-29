@@ -2,6 +2,9 @@
 /target
 **/*.rs.bk
 
+# Release tarballs from `make dist`
+/dist
+
 # Environment / secrets
 .env
 .env.local

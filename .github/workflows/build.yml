@@ -1,0 +1,107 @@
+# Builds the release artifacts.
+#
+# Reusable so that CI and the release produce the tarball the same way. A release
+# built by a different path than the one CI exercises is a release nobody has
+# tested.
+name: build
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Prefix for the uploaded artifact bundles
+        type: string
+        default: release-artifacts
+    outputs:
+      version:
+        description: The version that was built, from the VERSION file
+        value: ${{ jobs.build.outputs.version }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # musl rather than glibc, so one binary runs on every supported
+      # distribution. A glibc build carries the symbol versions of whatever
+      # produced it: compiled on Ubuntu 24.04 it will not start on Debian 12,
+      # and pinning to an old enough glibc means maintaining a build container
+      # for a problem static linking does not have. Nothing here links C beyond
+      # ring's assembly, so the static build is available for free.
+      #
+      # Built through `cross` rather than a hand-assembled toolchain. Pointing a
+      # glibc cross-compiler at a musl target links the wrong C runtime, and
+      # getting that combination right is exactly the problem cross exists to
+      # have already solved.
+      - name: Install cross
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build the daemon and the port helper
+        run: cross build --release --workspace --target ${{ matrix.target }}
+
+      - name: Check that the binaries are static
+        run: |
+          set -euo pipefail
+          for binary in fluxd flux-portd; do
+            path="target/${{ matrix.target }}/release/$binary"
+            file "$path"
+            # A dynamic executable here means the musl target silently fell back
+            # to the host toolchain, and the artifact would only run on runners.
+            if file "$path" | grep -q 'dynamically linked'; then
+              echo "::error::$binary is dynamically linked; it will not be portable"
+              exit 1
+            fi
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # The UI is architecture-independent, but it is rebuilt per matrix entry
+      # rather than shared. A tarball missing half of itself because an artifact
+      # download raced is a worse failure than a duplicated two-minute build.
+      - name: Build the web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package
+        run: scripts/package.sh --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7

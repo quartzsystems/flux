@@ -30,6 +30,89 @@ Postgres. What is *not* verified against reality is called out under
 `TrexEngine` has never talked to a live TRex, which needs DPDK-capable
 hardware.
 
+## Install
+
+On a fresh AlmaLinux, Rocky, RHEL, Debian, or Ubuntu box with systemd:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh | sudo bash
+```
+
+That installs PostgreSQL and VictoriaMetrics, creates the `flux` role and
+database with a generated password, places the daemon and the privileged helper,
+enables both units, and prints where to find the first administrator password.
+Open `http://<appliance>:8080/` when it finishes.
+
+Binaries are statically linked against musl, so one build runs on both
+distribution families — AlmaLinux 9 and 10, Rocky, RHEL, Debian 12, and Ubuntu
+22.04 upward, on x86_64 and aarch64. Downloads are verified against the
+release's `SHA256SUMS` before anything is placed.
+
+To look around without hardware, install the mock engine — a simulated four-port
+100G chassis that drives the entire UI:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh   | sudo bash -s -- --engine mock
+```
+
+<details>
+<summary>Other options</summary>
+
+```
+--version <x.y.z>     Install a specific release rather than the latest
+--from-source         Install from a checkout you have already built
+--database-url <url>  Point at an existing PostgreSQL instead of provisioning one
+--no-deps             Do not install distribution packages
+--no-metrics          Skip VictoriaMetrics (analytics stays empty)
+--no-firewall         Do not open the HTTP port
+--no-start            Place everything but start nothing
+--uninstall           Remove Flux, keeping configuration and data
+--uninstall --purge   Remove everything, including the database
+```
+
+</details>
+
+### Upgrading
+
+The same command. Run it again and it upgrades in place:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh | sudo bash
+```
+
+- `fluxd.env` and `portd.yaml` are never overwritten. The new release's example
+  lands beside them as `fluxd.env.example` so new settings are visible.
+- The database is dumped to `/var/lib/flux/backups/<version>-<timestamp>/`
+  before anything changes, along with the binaries and the UI it is replacing.
+- If the new version does not answer its health check within a minute, the
+  previous binaries go back and the services restart on them.
+- The last three backups are kept; older ones are pruned.
+
+Migrations are forward-only, so a rollback restores the binaries but not the
+schema. That is what the dump is for, and the installer tells you the exact
+`pg_restore` command if it ever has to roll back. A downgrade is refused unless
+you pass `--allow-downgrade`.
+
+## Versioning
+
+The `VERSION` file at the repository root is the single source of truth. The
+binaries read it at build time — `fluxd --version` reports what the tree said,
+not what `Cargo.toml` happened to say — and `scripts/sync-version.sh` writes it
+into `Cargo.toml` and `web/package.json`. CI fails if they disagree.
+
+Cutting a release:
+
+```bash
+echo 0.2.0 > VERSION
+make version-sync
+git commit -am "Release 0.2.0"
+git tag v0.2.0 && git push --follow-tags
+```
+
+The tag triggers the release workflow, which refuses to publish if the tag and
+`VERSION` disagree, builds both architectures, and attaches the tarballs and
+`SHA256SUMS` to a GitHub release.
+
 ## Architecture at a glance
 
 ```
@@ -145,6 +228,9 @@ whole router is absent.
 | `make test` | Rust test suite |
 | `make lint` | `cargo clippy -- -D warnings` |
 | `make web-lint` | ESLint plus `tsc --noEmit` |
+| `make version` | Print the version everything builds from |
+| `make version-sync` | Write `VERSION` into the manifests |
+| `make dist` | Build the release tarball into `dist/` |
 | `make ci` | Everything the pipeline runs |
 
 ## Layout
@@ -156,9 +242,13 @@ flux/
 │   ├── fluxd/         The daemon: API, orchestrator, engine supervisor
 │   └── flux-portd/    Privileged helper: NIC binding and hugepages
 ├── web/               Next.js UI, exported statically and served by fluxd
-├── deploy/            systemd units, SQL bootstrap, configuration examples
+├── deploy/            install.sh, systemd units, SQL bootstrap, config examples
+├── scripts/           Version sync, release packaging, installer tests
+├── .github/workflows/ CI, the reusable build, and the release
 └── docs/              Architecture notes
 ```
+
+`VERSION` at the root is what every one of those derives its version from.
 
 ## Configuration
 

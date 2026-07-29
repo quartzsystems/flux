@@ -9,6 +9,13 @@
 //! privileged port controller) could be lifted into its own service later without
 //! touching call sites.
 
+/// The appliance version.
+///
+/// Read from the repository's `VERSION` file at build time by `build.rs`, not
+/// from `CARGO_PKG_VERSION`, so that the version a running appliance reports and
+/// the version its release artifacts are named for cannot drift apart.
+pub const VERSION: &str = env!("FLUX_VERSION");
+
 pub mod config;
 pub mod engine;
 pub mod flow;

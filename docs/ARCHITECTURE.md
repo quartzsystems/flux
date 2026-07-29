@@ -693,6 +693,89 @@ not survive the restart, so failing them is the honest default.
 
 ---
 
+---
+
+## 8b. Versioning, packaging, and upgrade
+
+### One version
+
+`VERSION` at the repository root is the only place a version is written by hand.
+`crates/flux-core/build.rs` reads it and emits `FLUX_VERSION`, so
+`flux_core::VERSION` — and everything downstream of it, including
+`/system/health` and `fluxd --version` — reports what the tree said rather than
+what `Cargo.toml` happened to say.
+
+Cargo and npm both need a literal in their manifest, so those two are written by
+`scripts/sync-version.sh` and checked in CI. The check is what makes VERSION
+authoritative rather than merely first: without it the manifests drift, and the
+first anyone notices is a release tarball whose name disagrees with the binary
+inside it. `scripts/package.sh` refuses to build a tarball whose binaries report
+a different version, which catches the same class of mistake from the other end.
+
+### Static binaries
+
+Releases are built against musl and statically linked. A glibc build carries the
+symbol versions of whatever produced it: compiled on Ubuntu 24.04 it will not
+start on Debian 12, and pinning to an old enough glibc means maintaining a build
+container for a problem static linking does not have. Nothing in the workspace
+links C beyond `ring`'s assembly — sqlx's Postgres driver, the ZeroMQ transport,
+and rustls are all pure Rust — so the static build costs nothing.
+
+The result is one artifact per architecture that runs on every supported
+distribution, which is what lets `install.sh` be family-agnostic below the
+package-manager layer.
+
+### The installer
+
+`deploy/install.sh` is both the installer and the upgrade path, which is the
+constraint that shapes it. Everything it writes is either created once or
+replaced atomically, and nothing an operator has edited is ever overwritten.
+
+- **Distribution detection** reads `ID` and `ID_LIKE` from `/etc/os-release`.
+  `ID_LIKE` is what makes derivatives work without naming them: Rocky says
+  "rhel centos fedora", Ubuntu says "debian".
+- **Binaries** are written beside their target and moved into place. `mv` within
+  a filesystem is atomic, so nothing observes a half-written binary, and
+  replacing the path under a running process is safe — it keeps its inode.
+- **Configuration** is written once. On an upgrade the release's example lands
+  next to it as `fluxd.env.example`, so new settings are discoverable without
+  the file that holds the database password being touched.
+- **The database** is dumped before every upgrade. Migrations are forward-only:
+  putting the old binaries back does not undo one, and the dump is the only
+  thing that can. A rollback says so, and prints the `pg_restore` command.
+- **Rollback** is automatic. If the new version does not answer within a minute
+  the previous binaries and UI are restored from the backup and the services
+  restart on them.
+- **Health** is judged by the port answering at all, not by a 2xx:
+  `/system/health` returns 401 until you sign in, which is still proof that the
+  daemon bound its port and reached the database.
+
+`sort -V` is not enough to order versions on its own. It gets the numeric part
+right — the part a string comparison gets wrong between 0.10.0 and 0.9.0 — but
+sorts `1.0.0` *before* `1.0.0-rc.1`, which would make upgrading from a release
+candidate to its release look like a downgrade and be refused. Pre-releases are
+compared separately for that reason.
+
+### Why the installer has its own tests
+
+`scripts/test-install.sh` loads the installer with its final `main` line stripped
+and exercises the reasoning it does before touching anything. Two classes of bug
+justify it, both of which it caught:
+
+- **Version ordering** decides whether an upgrade is permitted at all, so a
+  wrong answer blocks a legitimate upgrade or permits a destructive one.
+- **`cond && action` as a function's last statement** returns 1 when the
+  condition is false, and under `set -e` that kills the caller with no message.
+  The installer is full of optional steps written that way. The test asserts the
+  hazard is still real before asserting each function is immune to it, so it
+  cannot quietly start passing for the wrong reason.
+
+The side effects are covered separately: CI installs, upgrades, uninstalls, and
+purges inside AlmaLinux 9 and 10, Debian 12, and Ubuntu 24.04 containers, and
+checks that the static binaries actually execute on each.
+
+---
+
 ## 9. Testing
 
 | Layer | Approach |
@@ -709,6 +792,8 @@ not survive the restart, so failing them is the honest default.
 | State machine | Driven end to end against `MockEngine` with injected loss, against a live Postgres |
 | Report | Rendered and asserted on: no scripts, no external references, operator text escaped, caveats present |
 | pcap import | Decoded stacks, truncation notes, dropped options, and a fuzz pass that truncates and corrupts a valid capture at every offset |
+| Installer | Version ordering, config rewriting against values full of shell metacharacters, and a guard against the `set -e` hazard that silently kills a caller |
+| Deployment | A real install, upgrade, uninstall, and purge inside AlmaLinux 9/10, Debian 12, and Ubuntu 24.04 containers |
 
 The quality bar: `cargo clippy --workspace --all-targets -- -D warnings` clean,
 no `unwrap`/`expect` on request or engine control paths, and a tracing span with
