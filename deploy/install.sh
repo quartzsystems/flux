@@ -13,6 +13,19 @@
 
 set -euo pipefail
 
+# `set -e` exits silently. For an installer that is the worst possible failure
+# mode: it stops half way through changing a system and says nothing about where
+# or why, leaving an operator to work backwards from whatever did not happen.
+# This turns every such exit into a line number and the command that failed.
+#
+# `-E` is what makes the trap apply inside functions too, which is where all of
+# the work happens. Guarded failures — `cmd || return 0`, `if cmd`, `cmd && x` —
+# do not trigger it, so this reports only the exits that were going to happen
+# anyway.
+set -E
+trap 'printf "\033[0;31merror:\033[0m install.sh failed at line %s: %s\n" \
+      "$LINENO" "$BASH_COMMAND" >&2' ERR
+
 # --- Defaults ---------------------------------------------------------------
 
 readonly REPO="quartzsystems/flux"
@@ -620,9 +633,28 @@ ensure_config() {
 
 # --- Database ---------------------------------------------------------------
 
+# A 32-character alphanumeric password.
+#
+# The obvious spelling — `tr -dc … < /dev/urandom | head -c 32` — is a trap under
+# `pipefail`. /dev/urandom never ends, so `head` exits first and `tr` dies of
+# SIGPIPE; the pipeline reports 141 even though the 32 characters came out fine,
+# and `password="$(random_password)"` then takes the whole installer down with
+# `set -e` and no message at all. That is exactly how this shipped: pg_hba was
+# rewritten, the role was never created, and DATABASE_URL kept its placeholder.
+#
+# So the randomness is taken in bounded chunks that reach their own end, and the
+# truncation happens in the shell where nothing can be signalled.
 random_password() {
-    # tr from /dev/urandom rather than openssl, which is not guaranteed present.
-    LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32
+    local out=""
+    while ((${#out} < 32)); do
+        out+="$(LC_ALL=C tr -dc 'A-Za-z0-9' < <(head -c 256 /dev/urandom))"
+    done
+
+    # 256 random bytes yield about 150 alphanumerics, so the loop runs once. The
+    # assertion is here because an empty or short password would otherwise be
+    # written into the config and only surface as a failed login much later.
+    [[ ${#out} -ge 32 ]] || die "could not generate a password"
+    printf '%s' "${out:0:32}"
 }
 
 as_postgres() { runuser -u postgres -- "$@"; }

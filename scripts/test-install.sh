@@ -92,6 +92,39 @@ check "follows a changed port"    "9443" "$(http_port)"
 set_config_value FLUX_BIND "nonsense"
 check "falls back when unparseable" "8080" "$(http_port)"
 
+printf '\npassword generation\n'
+
+# This shipped broken and took a real install down with it. /dev/urandom never
+# ends, so `tr … | head -c 32` leaves head exiting first and tr dying of SIGPIPE;
+# under `pipefail` the pipeline reports 141 even though the characters came out
+# fine, and `password="$(random_password)"` then killed the installer through
+# `set -e` without printing anything. pg_hba had already been rewritten, the role
+# was never created, and DATABASE_URL kept its placeholder.
+#
+# The container test in CI runs with --no-db, so it never calls this. These do.
+# A subshell inherits the function and the shell options, so this reproduces the
+# exact context the installer calls it from without loading the script twice.
+survives_set_e() {
+    ( set -euo pipefail; random_password >/dev/null ) && printf 'survived' || printf 'died'
+}
+check "generating a password does not kill the caller" survived "$(survives_set_e)"
+
+pw="$(random_password)"
+check "is 32 characters"      "32" "${#pw}"
+check "is alphanumeric only"  ""   "$(printf '%s' "$pw" | tr -d 'A-Za-z0-9')"
+
+# A password that is silently empty would be written into the config and only
+# surface later as a failed login, which is precisely how this was found.
+check "is not empty" "no" "$([[ -z $pw ]] && echo yes || echo no)"
+
+check "two calls differ" "differ" \
+    "$([[ "$(random_password)" == "$(random_password)" ]] && echo same || echo differ)"
+
+# A password goes into a URL and into SQL. Anything outside [A-Za-z0-9] would
+# have to be escaped for both, so the generator is the place that guarantees it.
+check "contains nothing needing escaping" "clean" \
+    "$(printf '%s' "$pw" | grep -q '[^A-Za-z0-9]' && echo dirty || echo clean)"
+
 printf '\npg_hba rewriting\n'
 
 # This shipped broken: the sed used `|` as its delimiter while the pattern needs

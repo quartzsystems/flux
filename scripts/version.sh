@@ -55,8 +55,13 @@ cargo_version() {
 
 # The top-level "version" key only, anchored on the two-space indent npm writes,
 # so a nested one inside a dependency block cannot match.
+#
+# awk rather than `sed … | head -n 1`: piping into head is how a producer ends up
+# killed by SIGPIPE, and under `pipefail` that is a failure the caller inherits.
+# It is harmless on a file this small, but it is the same shape as the bug that
+# took an install down, and there is no reason to keep one around.
 json_version() {
-    sed -n 's/^  "version": "\([^"]*\)",$/\1/p' "$PACKAGE_JSON" | head -n 1
+    awk -F'"' '/^  "version": / { print $4; exit }' "$PACKAGE_JSON"
 }
 
 # --- Commands ---------------------------------------------------------------

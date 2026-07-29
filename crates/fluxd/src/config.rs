@@ -84,6 +84,18 @@ impl Config {
             .map(|v| v.trim().to_string())
             .context("DATABASE_URL is required, e.g. postgres://flux:flux@localhost/flux")?;
 
+        // The shipped example carries a placeholder password, and an installer
+        // that stops before replacing it leaves the daemon looping on
+        // "password authentication failed" — which sends whoever reads the
+        // journal looking at PostgreSQL rather than at the one line that is
+        // actually wrong.
+        anyhow::ensure!(
+            !database_url.contains("CHANGE-ME"),
+            "DATABASE_URL still holds the placeholder from the shipped example, so the \
+             installer did not finish configuring the database. Re-run install.sh, or set \
+             DATABASE_URL by hand in /etc/flux/fluxd.env"
+        );
+
         let database_max_connections = env_or("FLUX_DB_MAX_CONNECTIONS", "16")
             .parse()
             .context("FLUX_DB_MAX_CONNECTIONS must be a positive integer")?;
