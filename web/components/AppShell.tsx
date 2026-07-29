@@ -41,8 +41,6 @@ interface NavItem {
   icon: Icon;
   /** Minimum role that can reach the page. */
   minRole?: Role;
-  /** Marks a destination that exists but has no content until a later milestone. */
-  upcoming?: boolean;
 }
 
 /** One titled block of navigation. */
@@ -54,9 +52,8 @@ interface NavSection {
 /**
  * The navigation tree.
  *
- * Milestone 1 implements the dashboard and ports; the rest are listed so the
- * shape of the product is visible from the first screen, and each is marked so
- * nobody mistakes an empty page for a broken one.
+ * Grouped by what an operator is doing rather than by which subsystem owns the
+ * page: wire it up, then run it.
  */
 const NAV: NavSection[] = [
   {
@@ -67,17 +64,17 @@ const NAV: NavSection[] = [
     title: 'Configure',
     items: [
       { href: '/ports', label: 'Ports', icon: IconPlugConnected },
-      { href: '/topology', label: 'Topology', icon: IconTopologyRing3, upcoming: true },
-      { href: '/flows', label: 'Flows', icon: IconRoute, upcoming: true },
-      { href: '/profiles', label: 'Load profiles', icon: IconServerBolt, upcoming: true },
+      { href: '/topology', label: 'Topology', icon: IconTopologyRing3 },
+      { href: '/flows', label: 'Flows', icon: IconRoute },
+      { href: '/profiles', label: 'Load profiles', icon: IconServerBolt },
     ],
   },
   {
     title: 'Execute',
     items: [
-      { href: '/tests', label: 'Tests', icon: IconActivity, upcoming: true },
-      { href: '/runs', label: 'Runs', icon: IconFileAnalytics, upcoming: true },
-      { href: '/analytics', label: 'Analytics', icon: IconChartHistogram, upcoming: true },
+      { href: '/tests', label: 'Tests', icon: IconActivity },
+      { href: '/runs', label: 'Runs', icon: IconFileAnalytics },
+      { href: '/analytics', label: 'Analytics', icon: IconChartHistogram },
     ],
   },
   {
@@ -237,12 +234,7 @@ function NavLink({
       title={collapsed ? item.label : undefined}
     >
       <Icon size={17} stroke={1.7} />
-      {!collapsed ? (
-        <>
-          <span style={{ flex: 1 }}>{item.label}</span>
-          {item.upcoming ? <Badge tone="muted">soon</Badge> : null}
-        </>
-      ) : null}
+      {!collapsed ? <span style={{ flex: 1 }}>{item.label}</span> : null}
     </Link>
   );
 }

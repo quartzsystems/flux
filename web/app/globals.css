@@ -1117,3 +1117,75 @@ a {
   line-height: 1.4;
   color: var(--qz-warn);
 }
+
+/* ---------------------------------------------------------------------------
+   Topology
+
+   React Flow ships a stylesheet built for a light page. Rather than fighting it
+   wholesale, the node bodies are styled here against the design tokens and only
+   the chrome it draws itself — controls, background dots, edge paths — is
+   overridden.
+   --------------------------------------------------------------------------- */
+
+.topo-node {
+  min-width: 168px;
+  padding: 10px 12px;
+  background: var(--qz-surface);
+  border: 1px solid var(--qz-border);
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+.topo-node-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qz-fg-1);
+  letter-spacing: -0.005em;
+}
+
+.topo-node-meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--qz-fg-4);
+}
+
+/* The device under test is the subject of the diagram, so it carries the accent
+   the ports around it deliberately do not. */
+.topo-dut {
+  min-width: 200px;
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, var(--qz-accent) 30%, transparent);
+  background: var(--qz-accent-soft);
+}
+
+.topo-dut .topo-node-title {
+  color: var(--qz-accent);
+}
+
+.react-flow__renderer,
+.react-flow__pane {
+  background: var(--qz-ink-0);
+}
+
+.react-flow__controls {
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  background: var(--qz-surface);
+  border-bottom: 1px solid var(--qz-border);
+  color: var(--qz-fg-3);
+  fill: currentcolor;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--qz-surface-2);
+}
+
+.react-flow__edge-path {
+  transition: stroke 140ms ease;
+}
+
+.react-flow__handle {
+  border: none;
+}

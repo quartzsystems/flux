@@ -460,6 +460,9 @@ export const testSchema = z.object({
   type: testTypeSchema,
   config: z.unknown(),
   flowIds: z.array(z.string()),
+  // A test drives flows or profiles, never both — the two are programmed
+  // through different engine calls and an instance is in one mode or the other.
+  profileIds: z.array(z.string()).default([]),
   createdBy: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -472,6 +475,7 @@ export interface TestInput {
   type: TestType;
   config: Record<string, unknown>;
   flowIds: string[];
+  profileIds?: string[];
 }
 
 /** The frame sizes RFC 2544 section 9 names for Ethernet. */
@@ -682,11 +686,28 @@ export const runProgressSchema = z.object({
 export type RunProgress = z.infer<typeof runProgressSchema>;
 
 /** `fluxd::collector::StatsBatch` */
+/** `fluxd::collector::ConnectionSample` */
+export const connectionSampleSchema = z.object({
+  cps: z.number(),
+  errorsPerSec: z.number(),
+  active: z.number(),
+  attempted: z.number(),
+  established: z.number(),
+  connectErrors: z.number(),
+  failurePct: z.number(),
+  txBps: z.number(),
+  rxBps: z.number(),
+});
+export type ConnectionSample = z.infer<typeof connectionSampleSchema>;
+
 export const statsBatchSchema = z.object({
   ts: z.number(),
   ports: z.record(z.string(), portSampleSchema),
   streams: z.record(z.string(), streamSampleSchema),
   run: runProgressSchema.optional(),
+  // Present only for a stateful load, which is what tells the run view to chart
+  // connections instead of frames.
+  connections: connectionSampleSchema.optional(),
 });
 export type StatsBatch = z.infer<typeof statsBatchSchema>;
 
@@ -696,3 +717,204 @@ export const streamControlSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type StreamControl = z.infer<typeof streamControlSchema>;
+
+// ---------------------------------------------------------------------------
+// Load profiles — flux_core::profile
+// ---------------------------------------------------------------------------
+
+/** `flux_core::profile::IpPool` */
+export const ipPoolSchema = z.object({
+  cidr: z.string(),
+  portMin: z.number().default(1024),
+  portMax: z.number().default(65535),
+});
+export type IpPool = z.infer<typeof ipPoolSchema>;
+
+/** `flux_core::profile::AppSpec` */
+export const appSpecSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('http_get'),
+    path: z.string().default('/'),
+    responseBytes: z.number().default(32_768),
+  }),
+  z.object({
+    type: z.literal('raw'),
+    requestBytes: z.number(),
+    responseBytes: z.number(),
+  }),
+  z.object({ type: z.literal('pcap'), pcapRef: z.string() }),
+]);
+export type AppSpec = z.infer<typeof appSpecSchema>;
+
+/** `flux_core::profile::Ramp` */
+export const rampSchema = z.object({
+  warmupSecs: z.number().default(10),
+  settleSecs: z.number().default(5),
+});
+export type Ramp = z.infer<typeof rampSchema>;
+
+/** `flux_core::profile::LoadProfileConfig` */
+export const loadProfileConfigSchema = z.object({
+  clientPort: z.string(),
+  serverPort: z.string(),
+  clientPool: ipPoolSchema,
+  serverPool: ipPoolSchema,
+  app: appSpecSchema,
+  targetCps: z.number(),
+  maxConcurrent: z.number(),
+  ramp: rampSchema.default({ warmupSecs: 10, settleSecs: 5 }),
+  durationSecs: z.number().nullable().optional(),
+});
+export type LoadProfileConfig = z.infer<typeof loadProfileConfigSchema>;
+
+/** `fluxd::store::models::LoadProfile` */
+export const loadProfileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  config: z.unknown(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type LoadProfile = z.infer<typeof loadProfileSchema>;
+
+/** `fluxd::api::profiles::ProfileInput` */
+export interface ProfileInput {
+  name: string;
+  config: LoadProfileConfig;
+}
+
+/** `fluxd::api::profiles::ProfilePreview` */
+export const profilePreviewSchema = z.object({
+  clientCapacity: z.number(),
+  serverAddresses: z.number(),
+  bytesPerConnection: z.number(),
+  impliedBps: z.number(),
+  clientPortSpeedMbps: z.number(),
+  exceedsLineRate: z.boolean(),
+  measurementStartsAt: z.number(),
+  summary: z.string(),
+});
+export type ProfilePreview = z.infer<typeof profilePreviewSchema>;
+
+/** A new profile with sensible starting values. */
+export function defaultLoadProfile(clientPort: string, serverPort: string): LoadProfileConfig {
+  return {
+    clientPort,
+    serverPort,
+    clientPool: { cidr: '16.0.0.0/16', portMin: 1024, portMax: 65535 },
+    serverPool: { cidr: '48.0.0.0/24', portMin: 80, portMax: 80 },
+    app: { type: 'http_get', path: '/', responseBytes: 32_768 },
+    // A thousand connections a second is enough to see the pipeline work
+    // without saturating anything an operator forgot to check.
+    targetCps: 1_000,
+    maxConcurrent: 100_000,
+    ramp: { warmupSecs: 10, settleSecs: 5 },
+    durationSecs: null,
+  };
+}
+
+/** The metrics a load run records. */
+export const loadMetricsSchema = z.object({
+  attempted: z.number().default(0),
+  established: z.number().default(0),
+  closed: z.number().default(0),
+  active: z.number().default(0),
+  connectErrors: z.number().default(0),
+  resets: z.number().default(0),
+  failurePct: z.number().default(0),
+  txBytes: z.number().default(0),
+  rxBytes: z.number().default(0),
+});
+export type LoadMetrics = z.infer<typeof loadMetricsSchema>;
+
+// ---------------------------------------------------------------------------
+// Analytics — fluxd::api::analytics
+// ---------------------------------------------------------------------------
+
+/** `fluxd::api::analytics::MetricInfo` */
+export const metricInfoSchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  unit: z.string(),
+});
+export type MetricInfo = z.infer<typeof metricInfoSchema>;
+
+/** `fluxd::api::analytics::Series` */
+export const analyticsSeriesSchema = z.object({
+  labels: z.record(z.string(), z.string()),
+  timestamps: z.array(z.number()),
+  values: z.array(z.number().nullable()),
+});
+export type AnalyticsSeries = z.infer<typeof analyticsSeriesSchema>;
+
+/** `fluxd::api::analytics::QueryResult` */
+export const analyticsResultSchema = z.object({
+  metric: z.string(),
+  unit: z.string(),
+  step: z.number(),
+  series: z.array(analyticsSeriesSchema),
+});
+export type AnalyticsResult = z.infer<typeof analyticsResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Settings — fluxd::api::settings
+// ---------------------------------------------------------------------------
+
+/** `fluxd::store::models::Setting` */
+export const settingSchema = z.object({
+  key: z.string(),
+  value: z.unknown(),
+  updatedAt: z.string(),
+});
+export type Setting = z.infer<typeof settingSchema>;
+
+/** The `tls` setting's payload. */
+export const tlsSettingSchema = z.object({
+  enabled: z.boolean().default(false),
+  certPath: z.string().nullable().default(null),
+  keyPath: z.string().nullable().default(null),
+  subject: z.string().nullable().default(null),
+  notAfter: z.string().nullable().default(null),
+});
+export type TlsSetting = z.infer<typeof tlsSettingSchema>;
+
+/** The `retention` setting's payload. */
+export const retentionSettingSchema = z.object({
+  runDays: z.number().default(90),
+  seriesDays: z.number().default(30),
+});
+export type RetentionSetting = z.infer<typeof retentionSettingSchema>;
+
+/** The `appliance` setting's payload. */
+export const applianceSettingSchema = z.object({
+  hostname: z.string().nullable().default(null),
+  location: z.string().nullable().default(null),
+  contact: z.string().nullable().default(null),
+});
+export type ApplianceSetting = z.infer<typeof applianceSettingSchema>;
+
+/** `fluxd::api::settings::ImportSummary` */
+export const importSummarySchema = z.object({
+  flowsCreated: z.number(),
+  flowsSkipped: z.number(),
+  profilesCreated: z.number(),
+  profilesSkipped: z.number(),
+  testsCreated: z.number(),
+  testsSkipped: z.number(),
+  problems: z.array(z.string()),
+});
+export type ImportSummary = z.infer<typeof importSummarySchema>;
+
+/**
+ * `fluxd::api::topology::Dut`
+ *
+ * Free-form pairs rather than named fields, so that what identifies a device
+ * can be recorded in the operator's own terms. The topology page offers the
+ * conventional ones and lets anything else be added.
+ */
+export const dutSchema = z.record(z.string(), z.string());
+export type Dut = z.infer<typeof dutSchema>;
+
+/** The fields the DUT editor offers by name, in the order it shows them. */
+export const DUT_FIELDS = ['name', 'vendor', 'model', 'firmware', 'serial', 'notes'] as const;

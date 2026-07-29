@@ -32,6 +32,7 @@ pub mod settings;
 pub mod spa;
 pub mod system;
 pub mod tests;
+pub mod topology;
 pub mod users;
 pub mod ws;
 
@@ -52,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         .nest("/users", users::router())
         .nest("/system", system::router())
         .nest("/settings", settings::router())
+        .nest("/topology", topology::router())
         .nest("/stream", ws::router())
         .route("/openapi.json", get(openapi::document));
 

@@ -227,8 +227,17 @@ impl Validate for IpPool {
 // ---------------------------------------------------------------------------
 
 /// What the emulated client and server exchange.
+///
+/// `rename_all` on an enum renames the *variants*; the fields inside them need
+/// `rename_all_fields`. Without it `responseBytes` arrives as an unknown key and
+/// the field it was meant for silently takes its default — which is the failure
+/// mode a test below exists to catch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(
+    tag = "type",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
 pub enum AppSpec {
     /// A single HTTP GET and its response.
     HttpGet {
@@ -561,6 +570,55 @@ mod tests {
 
         assert!(json.contains("\"type\":\"raw\""), "got {json}");
         assert_eq!(serde_json::from_str::<AppSpec>(&json).unwrap(), app);
+    }
+
+    /// A round trip alone cannot catch this: an enum whose variant fields
+    /// serialise snake_case round-trips against itself perfectly and still
+    /// disagrees with every other type on the wire, and with the hand-kept
+    /// TypeScript mirror. So the wire form is asserted literally.
+    #[test]
+    fn app_spec_variant_fields_are_camel_case_like_every_other_wire_type() {
+        let json = serde_json::to_value(AppSpec::Raw {
+            request_bytes: 128,
+            response_bytes: 4096,
+        })
+        .expect("serialises");
+
+        assert_eq!(
+            json,
+            serde_json::json!({ "type": "raw", "requestBytes": 128, "responseBytes": 4096 })
+        );
+
+        let pcap = serde_json::to_value(AppSpec::Pcap {
+            pcap_ref: "capture-1".into(),
+        })
+        .expect("serialises");
+
+        assert_eq!(
+            pcap,
+            serde_json::json!({ "type": "pcap", "pcapRef": "capture-1" })
+        );
+    }
+
+    /// The dangerous half of the same bug: `http_get`'s fields both have
+    /// defaults, so a misspelled key is not an error — it is a value silently
+    /// replaced by the default.
+    #[test]
+    fn an_unrecognised_app_field_does_not_quietly_become_a_default() {
+        let parsed: AppSpec = serde_json::from_value(serde_json::json!({
+            "type": "http_get",
+            "path": "/big",
+            "responseBytes": 1_048_576,
+        }))
+        .expect("parses");
+
+        assert_eq!(
+            parsed,
+            AppSpec::HttpGet {
+                path: "/big".into(),
+                response_bytes: 1_048_576,
+            }
+        );
     }
 
     // -----------------------------------------------------------------------

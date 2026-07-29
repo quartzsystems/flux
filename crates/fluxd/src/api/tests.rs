@@ -13,7 +13,7 @@ use crate::orch::run::RunError;
 use crate::state::AppState;
 use crate::store::models::Test;
 use crate::store::tests as test_store;
-use crate::store::{flows, is_unique_violation};
+use crate::store::{flows, is_unique_violation, settings};
 
 /// Mounts the test routes.
 pub fn router() -> Router<AppState> {
@@ -199,10 +199,26 @@ async fn run(
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("test {id}")))?;
 
-    let dut_meta = body
+    // An explicit body wins; otherwise the appliance's recorded device under
+    // test is used. A run is a record, and the report is written from what the
+    // run captured, so the description has to be copied in at start rather than
+    // read back later — by then the operator may have re-cabled onto a
+    // different box entirely.
+    // An empty object counts as absent. "This run is about an unnamed device"
+    // is not a thing a caller means, and treating it as one would let a client
+    // that always sends the field override the recorded description with
+    // nothing.
+    let dut_meta = match body
         .and_then(|Json(v)| v.get("dutMeta").cloned())
-        .filter(|v| v.is_object())
-        .unwrap_or_else(|| serde_json::json!({}));
+        .filter(|v| v.as_object().is_some_and(|m| !m.is_empty()))
+    {
+        Some(explicit) => explicit,
+        None => settings::get(state.store.pool(), settings::DUT_KEY)
+            .await?
+            .map(|s| s.value)
+            .filter(|v| v.is_object())
+            .unwrap_or_else(|| serde_json::json!({})),
+    };
 
     let run_id = state
         .runs

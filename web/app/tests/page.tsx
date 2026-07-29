@@ -22,7 +22,7 @@ import { AppShell } from '@/components/AppShell';
 import { BENCHMARKS, Rfc2544Wizard } from '@/components/Rfc2544Wizard';
 import { Alert, Badge, EmptyRow, PageHeader, Surface, TableSkeleton } from '@/components/ui';
 import { ApiError, api, queryKeys } from '@/lib/api';
-import type { Flow, Test, TestType } from '@/lib/api-types';
+import type { Flow, LoadProfile, Test, TestType } from '@/lib/api-types';
 import { useAuth } from '@/lib/auth';
 import { formatTimestamp } from '@/lib/format';
 
@@ -69,6 +69,11 @@ function Tests() {
     queryFn: ({ signal }) => api.flows.list(signal),
   });
 
+  const profiles = useQuery({
+    queryKey: queryKeys.loadProfiles,
+    queryFn: ({ signal }) => api.loadProfiles.list(signal),
+  });
+
   const start = useMutation({
     mutationFn: (id: string) => api.tests.run(id),
     onSuccess: ({ runId }) => {
@@ -86,6 +91,10 @@ function Tests() {
   });
 
   const rows = tests.data ?? [];
+
+  // A test needs something to drive. Either kind will do — the benchmarks need
+  // flows specifically, and TypePicker gates those itself.
+  const drivable = (flows.data ?? []).length + (profiles.data ?? []).length;
 
   return (
     <div className="page stack gap-18">
@@ -106,10 +115,10 @@ function Tests() {
             </button>
           ) : (
             <TypePicker
-              disabled={!can('operator') || (flows.data ?? []).length === 0}
+              disabled={!can('operator') || drivable === 0}
               reason={
-                (flows.data ?? []).length === 0
-                  ? 'Define a flow first'
+                drivable === 0
+                  ? 'Define a flow or a load profile first'
                   : !can('operator')
                     ? 'Creating tests requires an operator account'
                     : undefined
@@ -133,6 +142,7 @@ function Tests() {
       {creating === 'manual' ? (
         <CreateTest
           flows={flows.data ?? []}
+          profiles={profiles.data ?? []}
           onDone={() => {
             setCreating(null);
             void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
@@ -160,7 +170,7 @@ function Tests() {
               <tr>
                 <th>Name</th>
                 <th>Type</th>
-                <th>Flows</th>
+                <th>Drives</th>
                 <th>Created</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -171,7 +181,8 @@ function Tests() {
               <tbody>
                 {rows.length === 0 ? (
                   <EmptyRow columns={5}>
-                    No tests yet. A test names the flows to drive and how to drive them.
+                    No tests yet. A test names what to drive — flows or a load profile — and
+                    how to drive it.
                   </EmptyRow>
                 ) : (
                   rows.map((test) => (
@@ -179,6 +190,7 @@ function Tests() {
                       key={test.id}
                       test={test}
                       flows={flows.data ?? []}
+                      profiles={profiles.data ?? []}
                       canRun={can('operator')}
                       busy={start.isPending || remove.isPending}
                       onRun={() => {
@@ -205,6 +217,7 @@ function Tests() {
 function TestRow({
   test,
   flows,
+  profiles,
   canRun,
   busy,
   onRun,
@@ -212,14 +225,20 @@ function TestRow({
 }: {
   test: Test;
   flows: Flow[];
+  profiles: LoadProfile[];
   canRun: boolean;
   busy: boolean;
   onRun: () => void;
   onRemove: () => void;
 }) {
-  const names = test.flowIds
-    .map((id) => flows.find((f) => f.id === id)?.name ?? 'missing')
-    .join(', ');
+  const stateful = test.profileIds.length > 0;
+
+  // "missing" rather than the raw id: a deleted flow is worth seeing, and the
+  // id would say nothing to anyone reading the row.
+  const names = stateful
+    ? test.profileIds.map((id) => profiles.find((p) => p.id === id)?.name ?? 'missing').join(', ')
+    : test.flowIds.map((id) => flows.find((f) => f.id === id)?.name ?? 'missing').join(', ');
+
   const runnable = RUNNABLE.includes(test.type);
 
   return (
@@ -229,7 +248,10 @@ function TestRow({
         <Badge tone={runnable ? 'info' : 'muted'}>{TYPE_LABELS[test.type]}</Badge>
       </td>
       <td className="dim" style={{ maxWidth: 320 }}>
-        {names}
+        <span className="row gap-8">
+          <Badge tone="muted">{stateful ? 'load' : 'flows'}</Badge>
+          <span>{names}</span>
+        </span>
       </td>
       <td className="dim" style={{ fontSize: 12 }}>
         {formatTimestamp(test.createdAt)}
@@ -267,23 +289,44 @@ function TestRow({
   );
 }
 
-/** Inline form for defining a test. */
+/**
+ * Inline form for defining a manual test.
+ *
+ * A test drives stateless flows or a stateful load, never both: the two are
+ * programmed through different engine calls and an instance is in one mode or
+ * the other. Making that a choice up front is kinder than letting an operator
+ * assemble a mixture the orchestrator will refuse.
+ */
 function CreateTest({
   flows,
+  profiles,
   onDone,
   onError,
 }: {
   flows: Flow[];
+  profiles: LoadProfile[];
   onDone: () => void;
   onError: (message: string) => void;
 }) {
   const [name, setName] = useState('');
+  const [drives, setDrives] = useState<'flows' | 'profiles'>(
+    flows.length > 0 ? 'flows' : 'profiles',
+  );
   const [selected, setSelected] = useState<string[]>([]);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  const stateful = drives === 'profiles';
+  const options: { id: string; name: string }[] = stateful ? profiles : flows;
+
   const create = useMutation({
     mutationFn: () =>
-      api.tests.create({ name, type: 'manual', config: {}, flowIds: selected }),
+      api.tests.create({
+        name,
+        type: 'manual',
+        config: {},
+        flowIds: stateful ? [] : selected,
+        profileIds: stateful ? selected : [],
+      }),
     onSuccess: () => {
       setName('');
       setSelected([]);
@@ -299,7 +342,7 @@ function CreateTest({
     },
   });
 
-  /** Adds or removes a flow, preserving selection order. */
+  /** Adds or removes one, preserving selection order. */
   const toggle = (id: string) => {
     setSelected((previous) =>
       previous.includes(id) ? previous.filter((f) => f !== id) : [...previous, id],
@@ -323,43 +366,66 @@ function CreateTest({
           </label>
 
           <label className="field">
-            <span className="field-label">Type</span>
-            <select className="select" value="manual" disabled>
-              <option value="manual">Manual — start and stop flows</option>
+            <span className="field-label">Drives</span>
+            <select
+              className="select"
+              value={drives}
+              onChange={(e) => {
+                setDrives(e.target.value as 'flows' | 'profiles');
+                // Different lists entirely; a selection cannot carry across.
+                setSelected([]);
+              }}
+            >
+              <option value="flows" disabled={flows.length === 0}>
+                Flows — stateless traffic
+              </option>
+              <option value="profiles" disabled={profiles.length === 0}>
+                Load profile — stateful connections
+              </option>
             </select>
             <span className="muted" style={{ fontSize: 11.5 }}>
-              RFC 2544 wizards arrive in milestone 3.
+              {stateful ? 'Runs on an ASTF port group.' : 'Runs on a stateless port group.'}
             </span>
           </label>
         </div>
 
         <div className="field">
           <span className="field-label">
-            Flows {selected.length > 0 ? `(${selected.length} selected, in order)` : ''}
+            {stateful ? 'Load profiles' : 'Flows'}{' '}
+            {selected.length > 0 ? `(${selected.length} selected, in order)` : ''}
           </span>
           {fieldErrors.flowIds ? (
             <span className="field-error">{fieldErrors.flowIds}</span>
           ) : null}
+          {fieldErrors.profileIds ? (
+            <span className="field-error">{fieldErrors.profileIds}</span>
+          ) : null}
 
           <div className="stack gap-6" style={{ marginTop: 4 }}>
-            {flows.map((flow) => {
-              const position = selected.indexOf(flow.id);
-              return (
-                <label
-                  key={flow.id}
-                  className="row gap-8"
-                  style={{ fontSize: 13, cursor: 'pointer' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={position >= 0}
-                    onChange={() => toggle(flow.id)}
-                  />
-                  <span className="mono">{flow.name}</span>
-                  {position >= 0 ? <Badge tone="ok">#{position}</Badge> : null}
-                </label>
-              );
-            })}
+            {options.length === 0 ? (
+              <span className="muted" style={{ fontSize: 12.5 }}>
+                None defined yet.
+              </span>
+            ) : (
+              options.map((option) => {
+                const position = selected.indexOf(option.id);
+                return (
+                  <label
+                    key={option.id}
+                    className="row gap-8"
+                    style={{ fontSize: 13, cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={position >= 0}
+                      onChange={() => toggle(option.id)}
+                    />
+                    <span className="mono">{option.name}</span>
+                    {position >= 0 ? <Badge tone="ok">#{position}</Badge> : null}
+                  </label>
+                );
+              })
+            )}
           </div>
         </div>
 

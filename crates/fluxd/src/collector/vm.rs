@@ -99,6 +99,21 @@ fn encode(batch: &StatsBatch, run_id: Option<Id>) -> String {
         }
     }
 
+    // Connection-level series for a stateful run. Unlike ports and flows there
+    // is one set per engine instance rather than per entity, so the run is all
+    // that distinguishes them — which is enough, because a group runs one load
+    // at a time. Without a run there is nothing to tell two groups' series
+    // apart, so nothing is written.
+    if let (Some(sample), Some(run_id)) = (&batch.connections, run_id) {
+        let labels = format!("run_id=\"{run_id}\"");
+        line(&mut out, "flux_conn_cps", &labels, sample.cps, ts_ms);
+        line(&mut out, "flux_conn_active", &labels, sample.active as f64, ts_ms);
+        line(&mut out, "flux_conn_errors_per_sec", &labels, sample.errors_per_sec, ts_ms);
+        line(&mut out, "flux_conn_failure_pct", &labels, sample.failure_pct, ts_ms);
+        line(&mut out, "flux_conn_tx_bps", &labels, sample.tx_bps, ts_ms);
+        line(&mut out, "flux_conn_rx_bps", &labels, sample.rx_bps, ts_ms);
+    }
+
     out
 }
 
@@ -119,7 +134,7 @@ mod tests {
 
     use flux_core::engine::LatencyStats;
 
-    use super::super::{PortSample, StreamSample};
+    use super::super::{ConnectionSample, PortSample, StreamSample};
     use super::*;
 
     /// A batch with one port and one flow.
@@ -205,6 +220,39 @@ mod tests {
         assert!(!encoded.contains("flux_port_tx_pps"), "{encoded}");
         // Other series in the same batch still come through.
         assert!(encoded.contains("flux_port_tx_bps"), "{encoded}");
+    }
+
+    #[test]
+    fn connection_samples_are_written_against_their_run() {
+        let run_id = Id::new_v4();
+        let mut b = batch();
+        b.connections = Some(ConnectionSample {
+            cps: 2000.0,
+            active: 400,
+            failure_pct: 1.5,
+            ..Default::default()
+        });
+
+        let encoded = encode(&b, Some(run_id));
+        assert!(
+            encoded.contains(&format!(r#"flux_conn_cps{{run_id="{run_id}"}} 2000"#)),
+            "{encoded}"
+        );
+        assert!(
+            encoded.contains(&format!(r#"flux_conn_active{{run_id="{run_id}"}} 400"#)),
+            "{encoded}"
+        );
+    }
+
+    #[test]
+    fn connection_samples_without_a_run_are_dropped_rather_than_written_unlabelled() {
+        // Ports and flows identify themselves; a connection series is only ever
+        // distinguished by its run, so one without a run cannot be told apart
+        // from another group's.
+        let mut b = batch();
+        b.connections = Some(ConnectionSample { cps: 2000.0, ..Default::default() });
+
+        assert!(!encode(&b, None).contains("flux_conn_"));
     }
 
     #[test]

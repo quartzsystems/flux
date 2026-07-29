@@ -9,6 +9,13 @@ use sqlx::PgPool;
 
 use super::models::Setting;
 
+/// The key holding the device under test's description.
+///
+/// Named here rather than spelled as a literal at each use, because the
+/// topology endpoint that writes it and the run-start path that copies it into
+/// a run's record depend on the two agreeing.
+pub const DUT_KEY: &str = "dut";
+
 /// Every setting, alphabetically.
 pub async fn list(pool: &PgPool) -> sqlx::Result<Vec<Setting>> {
     sqlx::query_as::<_, Setting>("SELECT key, value, updated_at FROM settings ORDER BY key")

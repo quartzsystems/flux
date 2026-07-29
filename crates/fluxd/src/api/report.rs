@@ -286,6 +286,12 @@ fn results_section(run: &Run, results: &[RunResult]) -> String {
 
 /// Every trial, which is the working behind the headline figures.
 fn trials_section(results: &[RunResult]) -> String {
+    // A stateful load measures connections, not frames. Rendering it through
+    // the frame table would print a row of em-dashes and call it a trial.
+    if results.iter().any(|r| r.params.get("profileId").is_some()) {
+        return load_section(results);
+    }
+
     let trials: Vec<&RunResult> = results
         .iter()
         .filter(|r| r.params.get("resultRatePct").is_none() && r.params.get("resultBurstFrames").is_none())
@@ -328,6 +334,51 @@ fn trials_section(results: &[RunResult]) -> String {
     format!(
         r#"<section><h2>Trials</h2><table><thead>
 <tr><th>#</th><th>Frame</th><th>Rate / burst</th><th>Transmitted</th><th>Received</th><th>Lost</th><th>Loss %</th><th>Result</th></tr>
+</thead><tbody>{rows}</tbody></table></section>"#
+    )
+}
+
+/// What a stateful load actually did, one row per profile.
+///
+/// Connections attempted and established rather than frames transmitted and
+/// received: the question a load answers is whether the device kept up with the
+/// connection rate, and how many attempts it dropped doing so.
+fn load_section(results: &[RunResult]) -> String {
+    let rows: String = results
+        .iter()
+        .map(|r| {
+            format!(
+                r#"<tr>
+<td class="mono">{profile}</td>
+<td class="num">{cps}</td>
+<td class="num">{attempted}</td>
+<td class="num">{established}</td>
+<td class="num">{errors}</td>
+<td class="num">{failure}</td>
+<td class="num">{peak}</td>
+<td><span class="{class}">{verdict}</span></td>
+</tr>"#,
+                profile = escape(
+                    r.params
+                        .get("profileName")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("—")
+                ),
+                cps = decimal(r.params.get("targetCps"), 0),
+                attempted = number(r.metrics.get("attempted")),
+                established = number(r.metrics.get("established")),
+                errors = number(r.metrics.get("connectErrors")),
+                failure = decimal(r.metrics.get("failurePct"), 4),
+                peak = number(r.metrics.get("active")),
+                class = if r.passed { "pass" } else { "fail" },
+                verdict = if r.passed { "pass" } else { "fail" },
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<section><h2>Load</h2><table><thead>
+<tr><th>Profile</th><th>Target conn/s</th><th>Attempted</th><th>Established</th><th>Errors</th><th>Failure %</th><th>Open at end</th><th>Result</th></tr>
 </thead><tbody>{rows}</tbody></table></section>"#
     )
 }
@@ -665,6 +716,45 @@ mod tests {
         assert!(html.contains("Back-to-back frames"));
         assert!(html.contains("37,400"));
         assert!(html.contains("2513.2"));
+    }
+
+    #[test]
+    fn a_load_run_reports_connections_rather_than_frames() {
+        let mut r = run();
+        r.test_type = "manual".into();
+        r.config_snapshot = json!({});
+
+        let row = RunResult {
+            id: Id::nil(),
+            run_id: Id::nil(),
+            iteration: 0,
+            frame_size: None,
+            params: json!({
+                "profileId": Id::nil(),
+                "profileName": "http-ramp",
+                "targetCps": 2000.0,
+                "maxConcurrent": 20_000,
+                "warmupSecs": 5.0,
+            }),
+            metrics: json!({
+                "attempted": 35_000,
+                "established": 34_900,
+                "connectErrors": 100,
+                "failurePct": 0.2857,
+                "active": 400,
+            }),
+            passed: true,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+
+        let html = render(&r, &[row], "0.1.0");
+
+        assert!(html.contains("<h2>Load</h2>"), "{html}");
+        assert!(html.contains("http-ramp"), "{html}");
+        assert!(html.contains("35,000"), "{html}");
+        assert!(html.contains("0.2857"), "{html}");
+        // And not through the frame table, which would render a row of dashes.
+        assert!(!html.contains("<h2>Trials</h2>"), "{html}");
     }
 
     #[test]

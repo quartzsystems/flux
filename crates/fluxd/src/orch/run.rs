@@ -157,6 +157,14 @@ impl RunSupervisor {
                 "name": f.flow.name,
                 "config": f.flow.config,
             })).collect::<Vec<_>>(),
+            // Profiles travel for the same reason flows do: a stateful run's
+            // record has to say what load it applied, and the profile it names
+            // may have been retuned or deleted by the time anyone reads it.
+            "profiles": plan.profiles.iter().map(|p| json!({
+                "id": p.profile.id,
+                "name": p.profile.name,
+                "config": p.profile.config,
+            })).collect::<Vec<_>>(),
             "ports": plan.ports.iter().map(|(index, port)| json!({
                 "id": port.id,
                 "name": port.name,

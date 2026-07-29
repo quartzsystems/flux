@@ -5,8 +5,11 @@ Documentation=https://github.com/zagdrath/flux
 # helper before the first inventory refresh. Neither is Requires=: fluxd logs
 # and carries on if the helper is missing, so an operator can still reach the UI
 # to see why.
-After=network-online.target postgresql.service flux-portd.service
-Wants=network-online.target postgresql.service flux-portd.service
+#
+# VictoriaMetrics is only Wants=: losing the time series costs the analytics
+# charts, not the ability to run a test.
+After=network-online.target postgresql.service flux-portd.service victoriametrics.service
+Wants=network-online.target postgresql.service flux-portd.service victoriametrics.service
 
 [Service]
 Type=exec
@@ -46,10 +49,13 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @obsolete
 
-# Writable paths: TRex configs and any state fluxd keeps.
+# Writable paths: TRex configs, any state fluxd keeps, and the certificate
+# directory it writes an uploaded certificate into. ProtectSystem=strict makes
+# /etc read-only, so without this last entry an upload fails at the write with a
+# permission error rather than at validation with a useful one.
 StateDirectory=flux
 RuntimeDirectory=flux
-ReadWritePaths=/var/lib/flux /run/flux
+ReadWritePaths=/var/lib/flux /run/flux /etc/flux/tls
 
 # TRex instances are spawned from here and are memory-hungry by design; the
 # default file descriptor ceiling is too low for a multi-port group.

@@ -16,7 +16,7 @@ import { IconAlertTriangle, IconFileText, IconPlayerStop } from '@tabler/icons-r
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
 import { LiveChart, type ChartSeries } from '@/components/LiveChart';
@@ -250,8 +250,33 @@ function RunViewInner() {
   );
 }
 
-/** The three charts shown while a run is in flight. */
+/**
+ * True once a batch has carried connection-level statistics.
+ *
+ * Sticky: a stateful run is stateful for its whole life, and a single sample
+ * arriving without connections — which happens between the engine starting and
+ * the first load being programmed — must not flip the charts back.
+ *
+ * A boolean is the only thing this lifts into React state; the numbers behind
+ * it stay in the charts' own arrays, as everywhere else.
+ */
+function useHasConnections(stream: ReturnType<typeof useStatsStream>): boolean {
+  const [seen, setSeen] = useState(false);
+
+  useEffect(
+    () =>
+      stream.subscribe((batch) => {
+        if (batch.connections) setSeen(true);
+      }),
+    [stream],
+  );
+
+  return seen;
+}
+
+/** The charts shown while a run is in flight. */
 function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
+  const stateful = useHasConnections(stream);
   // Series are derived from the batch each second rather than from a fixed list
   // of ids, because a run's flows are known only once data starts arriving.
   const rateSeries: ChartSeries[] = useMemo(
@@ -275,6 +300,10 @@ function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
     ],
     [],
   );
+
+  if (stateful) {
+    return <ConnectionCharts stream={stream} />;
+  }
 
   return (
     <div className="chart-grid">
@@ -304,6 +333,67 @@ function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
           series={latencySeries}
           unit="µs"
           format={(v) => `${v.toFixed(1)}`}
+        />
+      </Surface>
+    </div>
+  );
+}
+
+/**
+ * What a stateful load looks like while it runs.
+ *
+ * Packets per second and per-frame loss say nothing useful about a connection
+ * load — the questions are how fast connections are being established, how many
+ * are open, and how many are failing — so these replace the stateless charts
+ * rather than sitting alongside them.
+ */
+function ConnectionCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
+  const conn =
+    <T,>(pick: (c: NonNullable<StatsBatch['connections']>) => T) =>
+    (batch: StatsBatch) =>
+      batch.connections ? (pick(batch.connections) as number) : null;
+
+  return (
+    <div className="chart-grid">
+      <Surface title="Connection rate">
+        <LiveChart
+          stream={stream}
+          series={[
+            { label: 'established', value: conn((c) => c.cps) },
+            { label: 'errors', value: conn((c) => c.errorsPerSec) },
+          ]}
+          unit="conn/s"
+          format={(v) => formatCount(Math.round(v))}
+        />
+      </Surface>
+
+      <Surface title="Open connections">
+        <LiveChart
+          stream={stream}
+          series={[{ label: 'active', value: conn((c) => c.active) }]}
+          unit="connections"
+          format={(v) => formatCount(Math.round(v))}
+        />
+      </Surface>
+
+      <Surface title="Application throughput">
+        <LiveChart
+          stream={stream}
+          series={[
+            { label: 'tx', value: conn((c) => c.txBps) },
+            { label: 'rx', value: conn((c) => c.rxBps) },
+          ]}
+          unit="bits/s"
+          format={formatBitrate}
+        />
+      </Surface>
+
+      <Surface title="Failure rate">
+        <LiveChart
+          stream={stream}
+          series={[{ label: 'failed', value: conn((c) => c.failurePct) }]}
+          unit="%"
+          format={(v) => `${v.toFixed(2)}%`}
         />
       </Surface>
     </div>

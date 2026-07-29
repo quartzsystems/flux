@@ -10,26 +10,35 @@
 import { z } from 'zod';
 
 import {
+  analyticsResultSchema,
+  dutSchema,
   errorBodySchema,
   flowPreviewSchema,
   flowSchema,
   healthSchema,
-  pcapImportSchema,
   hugepagesStatusSchema,
+  importSummarySchema,
+  loadProfileSchema,
   meSchema,
+  metricInfoSchema,
+  pcapImportSchema,
   portGroupSchema,
   portSchema,
+  profilePreviewSchema,
   reservationSchema,
   runDetailSchema,
   runPageSchema,
+  settingSchema,
   testSchema,
   userSchema,
   type CreateUserRequest,
+  type Dut,
   type FieldError,
   type FlowInput,
   type HugepageSize,
   type LoginRequest,
   type PortUpdate,
+  type ProfileInput,
   type ReserveRequest,
   type RunState,
   type TestInput,
@@ -182,12 +191,6 @@ export const api = {
     release: (id: string) => request(`/ports/${id}/reserve`, { method: 'DELETE' }),
   },
 
-  portGroups: {
-    /** Every port group with its membership. */
-    list: (signal?: AbortSignal) =>
-      request('/port-groups', { schema: z.array(portGroupSchema), signal }),
-  },
-
   users: {
     /** Every account. Admin only. */
     list: (signal?: AbortSignal) =>
@@ -293,11 +296,18 @@ export const api = {
     /** Deletes a test. */
     remove: (id: string) => request(`/tests/${id}`, { method: 'DELETE' }),
 
-    /** Starts a run and returns its id. */
+    /**
+     * Starts a run and returns its id.
+     *
+     * `dutMeta` is omitted rather than sent empty when the caller has none:
+     * an empty object would read as "this run is about an unnamed device" and
+     * override the description recorded on the topology page, which is the one
+     * every run is supposed to inherit.
+     */
     run: (id: string, dutMeta?: Record<string, unknown>) =>
       request(`/tests/${id}/run`, {
         method: 'POST',
-        body: { dutMeta: dutMeta ?? {} },
+        body: dutMeta ? { dutMeta } : {},
         schema: z.object({ runId: z.string() }),
       }),
   },
@@ -355,6 +365,124 @@ export const api = {
       }),
   },
 
+  loadProfiles: {
+    /** Every load profile. */
+    list: (signal?: AbortSignal) =>
+      request('/load-profiles', { schema: z.array(loadProfileSchema), signal }),
+
+    /** Creates a profile. */
+    create: (body: ProfileInput) =>
+      request('/load-profiles', { method: 'POST', body, schema: loadProfileSchema }),
+
+    /** Replaces a profile. */
+    update: (id: string, body: ProfileInput) =>
+      request(`/load-profiles/${id}`, { method: 'PUT', body, schema: loadProfileSchema }),
+
+    /** Deletes a profile. */
+    remove: (id: string) => request(`/load-profiles/${id}`, { method: 'DELETE' }),
+
+    /** Reports what a profile implies, without saving it. */
+    preview: (body: ProfileInput, signal?: AbortSignal) =>
+      request('/load-profiles/preview', {
+        method: 'POST',
+        body,
+        schema: profilePreviewSchema,
+        signal,
+      }),
+  },
+
+  analytics: {
+    /** The metrics this appliance records. */
+    metrics: (signal?: AbortSignal) =>
+      request('/analytics/metrics', { schema: z.array(metricInfoSchema), signal }),
+
+    /** A bounded range query. */
+    query: (
+      params: {
+        metric: string;
+        port?: string;
+        stream?: string;
+        runId?: string;
+        quantile?: string;
+        start: number;
+        end: number;
+        step?: number;
+      },
+      signal?: AbortSignal,
+    ) => {
+      const query = new URLSearchParams({
+        metric: params.metric,
+        start: String(params.start),
+        end: String(params.end),
+      });
+      if (params.port) query.set('port', params.port);
+      if (params.stream) query.set('stream', params.stream);
+      if (params.runId) query.set('runId', params.runId);
+      if (params.quantile) query.set('quantile', params.quantile);
+      if (params.step !== undefined) query.set('step', String(params.step));
+
+      return request(`/analytics/query?${query}`, {
+        schema: analyticsResultSchema,
+        signal,
+      });
+    },
+  },
+
+  portGroups: {
+    /** Every port group with its membership. */
+    list: (signal?: AbortSignal) =>
+      request('/port-groups', { schema: z.array(portGroupSchema), signal }),
+
+    /** Brings up the engine for a group. */
+    start: (id: string) =>
+      request(`/port-groups/${id}/start`, { method: 'POST', schema: portGroupSchema }),
+
+    /** Stops the engine for a group. */
+    stop: (id: string) =>
+      request(`/port-groups/${id}/stop`, { method: 'POST', schema: portGroupSchema }),
+  },
+
+  settings: {
+    /** Every setting. Admin only. */
+    list: (signal?: AbortSignal) =>
+      request('/settings', { schema: z.array(settingSchema), signal }),
+
+    /** Writes a setting. */
+    put: (key: string, value: unknown) =>
+      request(`/settings/${key}`, { method: 'PUT', body: value, schema: settingSchema }),
+
+    /** Installs a TLS certificate. Takes effect after a restart. */
+    uploadTls: (certificate: string, privateKey: string) =>
+      request('/settings/tls', {
+        method: 'POST',
+        body: { certificate, privateKey },
+        schema: z.object({
+          installed: z.boolean(),
+          subject: z.string(),
+          restartRequired: z.boolean(),
+        }),
+      }),
+
+    /** Removes the certificate and returns to plain HTTP. */
+    removeTls: () => request('/settings/tls', { method: 'DELETE' }),
+
+    /**
+     * The configuration export URL.
+     *
+     * A link rather than a fetch, so the browser's own download handling
+     * names and saves the file.
+     */
+    exportUrl: () => `${BASE}/settings/export`,
+
+    /** Imports a configuration bundle. */
+    import: (bundle: unknown) =>
+      request('/settings/import', {
+        method: 'POST',
+        body: bundle,
+        schema: importSummarySchema,
+      }),
+  },
+
   system: {
     /** The appliance health report. */
     health: (signal?: AbortSignal) =>
@@ -372,6 +500,15 @@ export const api = {
         schema: hugepagesStatusSchema,
       }),
   },
+
+  topology: {
+    /** The recorded device under test. Readable by any signed-in user. */
+    dut: (signal?: AbortSignal) => request('/topology/dut', { schema: dutSchema, signal }),
+
+    /** Records the device under test. Operator or above. */
+    setDut: (dut: Dut) =>
+      request('/topology/dut', { method: 'PUT', body: dut, schema: dutSchema }),
+  },
 };
 
 /** Query keys, centralised so an invalidation cannot miss a cache entry. */
@@ -387,4 +524,8 @@ export const queryKeys = {
   test: (id: string) => ['tests', id] as const,
   runs: ['runs'] as const,
   run: (id: string) => ['runs', id] as const,
+  loadProfiles: ['load-profiles'] as const,
+  analyticsMetrics: ['analytics', 'metrics'] as const,
+  settings: ['settings'] as const,
+  dut: ['topology', 'dut'] as const,
 };

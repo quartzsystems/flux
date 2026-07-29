@@ -15,23 +15,20 @@ controller and no external management plane.
 
 ## Status
 
-**Milestone 3 of 4 — RFC 2544 benchmarking and reports.**
+**Feature complete — all four milestones delivered.**
 
 | | |
 |---|---|
 | ✅ **Milestone 1** | Workspace, API, login and sessions, user administration, migrations, port inventory with driver binding and reservations, dashboard and ports pages, `flux-portd` privileged helper |
 | ✅ **Milestone 2** | Flow documents with a full editor, frame builder and hex preview, rate maths, `Engine` with mock and TRex implementations, statistics collector, WebSocket stream, manual test type, run history and the live run view |
 | ✅ **Milestone 3** | All four RFC 2544 benchmarks with the search as a pure, exhaustively tested function; per-benchmark wizards; printable self-contained reports; pcap import |
-| 🚧 **Milestone 4** | Stateful L4-7 profiles, analytics, TLS and settings, deployment polish |
-
-Routes for later milestones are already in the navigation and each says which
-milestone delivers it, so the shape of the product is visible from the first
-screen.
+| ✅ **Milestone 4** | Stateful L4-7 load profiles over TRex ASTF, the topology view, historical analytics, TLS, retention and appliance identity, configuration export/import, deployment |
 
 The API, the orchestrator, and the UI are verified end to end against a real
-Postgres. One thing is not verified against reality and is called out under
-[known gaps](docs/ARCHITECTURE.md#known-gaps): `TrexEngine` has never talked to
-a live TRex, which needs DPDK-capable hardware.
+Postgres. What is *not* verified against reality is called out under
+[known gaps](docs/ARCHITECTURE.md#known-gaps); the important one is that
+`TrexEngine` has never talked to a live TRex, which needs DPDK-capable
+hardware.
 
 ## Architecture at a glance
 
@@ -117,6 +114,15 @@ so a complete run works end to end without hardware:
 5. **Runs** — watch the live charts, then open the report and print it. A
    60-second trial really does take 60 seconds; set `FLUX_MOCK_TIMESCALE=60` to
    speed the clock up while developing.
+6. **Topology** — the diagram lays itself out from the flows, and the edges
+   carry live rate and loss while a run is in flight. Name the device under test
+   here and every run started afterwards records it on its report.
+7. **Load profiles** — for the stateful side, define client and server pools, an
+   application, and a connection-rate ramp. A port group is stateless *or*
+   stateful, so give the profile its own group.
+8. **Analytics** — once a run has finished, chart what it recorded. Needs
+   VictoriaMetrics on `FLUX_VM_URL`; without it, runs and reports still work and
+   only the historical charts stay empty.
 
 To see what loss looks like on the charts, inject some while a run is in flight:
 
@@ -178,6 +184,13 @@ The two that decide what Flux actually drives:
   only as their SHA-256, and delivered in an `HttpOnly; SameSite=Strict` cookie.
 - Roles are enforced by the type a handler's argument is declared as, so an
   unguarded endpoint is visibly unguarded at the definition.
+- TLS is uploaded through the UI, checked before it is written, and the key is
+  stored mode 0600. Until a certificate is installed the appliance serves plain
+  HTTP and the session cookie crosses the network in the clear — install one
+  before putting the appliance on a shared network, and set
+  `FLUX_COOKIE_SECURE=1` at the same time.
+- Configuration export deliberately excludes accounts, sessions, run history,
+  and TLS material.
 
 ## License
 

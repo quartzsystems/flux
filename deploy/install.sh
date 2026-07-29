@@ -94,6 +94,12 @@ fi
 
 install -d -m 0750 -o flux -g flux /var/lib/flux
 
+# Certificates are uploaded through the UI, so the daemon writes here. Mode 0700
+# because the private key lives in it and nothing but fluxd has any business
+# reading it — the daemon writes the key 0600 as well, but the directory is what
+# stops another local account from listing what is there.
+install -d -m 0700 -o flux -g flux "$SYSCONF/tls"
+
 # --- Units ------------------------------------------------------------------
 
 log "installing systemd units"
@@ -124,15 +130,24 @@ Installed. Remaining steps, in order:
 
        default_hugepagesz=1G hugepagesz=1G hugepages=16 iommu=pt intel_iommu=on
 
-  4. Start the services:
+  4. Install and start VictoriaMetrics, listening on 127.0.0.1:8428. It stores
+     the per-second samples behind the analytics page. Flux runs without it —
+     tests execute and report from Postgres either way — but the historical
+     charts stay empty until it is up.
+
+  5. Start the services:
 
        systemctl enable --now flux-portd fluxd
 
-  5. Read the generated administrator password out of the journal — it is
+  6. Read the generated administrator password out of the journal — it is
      printed exactly once, on the first start with an empty users table:
 
        journalctl -u fluxd | grep -A4 'first administrator'
 
-  6. Open http://<appliance>:8080/
+  7. Open http://<appliance>:8080/
+
+  8. Install a certificate under Settings -> TLS, set FLUX_COOKIE_SECURE=1 in
+     /etc/flux/fluxd.env, and restart fluxd. Until then the session cookie —
+     which is a bearer credential — crosses the network in the clear.
 
 NEXT

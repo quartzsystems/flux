@@ -325,6 +325,49 @@ is a measurement.
 
 ---
 
+## 2f. Stateful load
+
+The RFC 2544 side of Flux answers "how many frames per second survive". The
+stateful side answers a different question — "how many connections per second,
+and how many of them complete" — and needs a different engine mode. TRex calls
+it ASTF, and it is not a variation on stateless: the two modes cannot run in the
+same process, so a port group is one or the other.
+
+`LoadProfileConfig` in `flux-core` is the engine-agnostic document:
+
+- **IP pools** — a client range and a server range, each an address span crossed
+  with a port span. `capacity()` is addresses × ports, and the orchestrator
+  refuses a concurrency target the pool cannot source, because the alternative
+  is a run that silently reuses four-tuples and reports connection errors that
+  are its own fault.
+- **An application** — `http_get`, a raw request/response exchange with stated
+  sizes, or a captured pcap.
+- **A ramp** — connections per second climbing from a start to a target over a
+  warmup, then held. `factor_at(t)` is the multiplier at a moment;
+  `measurement_starts_at()` is where the warmup ends, and results measured
+  before it are not results.
+
+`AstfProfile` is the join point, mirroring `StreamSpec` on the stateless side:
+the orchestrator translates a profile into one and hands it to whichever `Engine`
+is behind the port group. The four ASTF methods on `Engine` have default
+implementations returning `EngineError::Rejected`, so a backend that has no
+stateful mode says so rather than pretending.
+
+A test drives flows *or* profiles, never both, and the run planner rejects a
+mixture rather than picking one. That constraint runs all the way out: the test
+form asks which of the two before it asks for anything else, the live run view
+charts connections instead of frames once a batch carries them, and the report
+prints a connection table rather than a frame table with every column dashed.
+
+`MockEngine` models the ramp as an integral rather than a step: connections
+accumulate as the area under the ramp, and with a connection lifetime of 200 ms
+the active count settles where a real engine's would. That is what makes the
+warmup visible on the live chart — a mock that jumped to the target rate on the
+first sample would exercise the pipeline without exercising anything an operator
+would recognise.
+
+---
+
 ## 5. HTTP surface
 
 One `Router` serves both `/api/v1` and the exported UI at `/`.
@@ -445,6 +488,74 @@ from inline `<script>` tags and there is no server to stamp a per-response nonce
 Combined with `'self'`-only sources this still blocks loading foreign script;
 tightening it further requires moving the UI off static export.
 
+
+### Analytics
+
+`GET /api/v1/analytics/query` is a builder, not a query language. It takes a
+metric name, an optional port, flow, run, or quantile, and a time range, and
+composes the PromQL itself. `GET /api/v1/analytics/metrics` lists what can be
+asked for — port and flow rates, latency quantiles, and the connection-level
+series a stateful load records.
+
+A free-form PromQL box would serve the two people who know PromQL and nobody
+else, and on an appliance it is also a denial-of-service primitive — a single
+unbounded selector over a month of one-second samples is enough. Composing the
+query server-side means the label values are escaped in one place and the step
+is chosen from the range rather than by the caller.
+
+Label values are escaped for the PromQL string context on the way in. The unit
+tests assert on the exact escaped selector rather than on a substring, because a
+substring assertion passes against a selector that is escaped in the wrong place.
+
+### TLS
+
+Certificates are uploaded, not configured. `POST /api/v1/settings/tls` parses
+the PEM material and checks it *before* writing anything: an appliance that
+accepted a broken certificate and then failed to bind its listener would be
+unreachable, which is the one failure this endpoint must not produce. The
+diagnosis for material pasted into the wrong box is checked first, so the useful
+message wins over "no certificate block found".
+
+The key is written mode 0600. Serving over HTTPS is switched on by the presence
+of both files rather than by a flag, and the listener is bound once at startup,
+so installing or removing a certificate needs a restart — which the API says and
+the UI repeats.
+
+`tls::Material` reports the subject and expiry it can determine without a full
+X.509 parser, and carries a `TODO(tls-verify)` where one would go.
+
+### Configuration transfer
+
+`GET /api/v1/settings/export` produces a bundle of flows, load profiles, tests,
+and settings, cross-referenced **by name** rather than by id. Ids are per-
+appliance; a bundle that carried them would either collide or dangle on import.
+
+Import never overwrites. A name that already exists is skipped and counted, and
+the summary reports what was created, what was skipped, and anything that could
+not be resolved. The alternative — merging — makes a failed import impossible to
+back out of.
+
+Users, sessions, run history, and TLS material are excluded. Credentials are not
+portable, history is not configuration, and the private key belongs to the
+hostname of the appliance that holds it.
+
+### The device under test
+
+`GET /api/v1/topology/dut` is readable by any signed-in user and writable by an
+operator, which is why it is not reached through the admin-only settings routes:
+an operator who can start a run must be able to name the device that run is
+about.
+
+The description is free-form key/value pairs, not a fixed struct. What identifies
+a device varies — a switch is a vendor and a firmware revision, a virtual
+appliance is an image digest — and a fixed schema forces one of them into a field
+named for the other. Absent fields are absent from the map rather than present
+and null, because the report prints whatever is there verbatim.
+
+A run copies the description in at start rather than reading it back at report
+time. By the time a report is read the appliance may be cabled to a different box
+entirely, and a run is a record.
+
 ---
 
 ## 6. The port control boundary
@@ -529,6 +640,27 @@ a specification: MACs, IPs, PCI addresses, hex, counters, and rates. Numeric
 columns use `tabular-nums` so a counter updating at 1 Hz does not make the row
 twitch sideways.
 
+
+### The topology view
+
+The diagram is derived, not drawn. Flux already knows which port transmits and
+which receives for every flow, so asking an operator to place nodes would be
+asking them to re-enter that and then keep it in step by hand.
+
+The derivation is a two-colouring of the flow graph: in a device-under-test setup
+every flow crosses the device, which makes the graph bipartite, and the two
+colours are the two sides of it. A graph that will not two-colour still draws —
+the colouring degrades to breadth-first parity and the odd flow becomes an edge
+within a column, which is a true picture of unusual cabling rather than a wrong
+picture of a normal one. Ports in no flow are listed below the canvas rather than
+drawn: an unconnected node in a diagram of connections is noise.
+
+This is the one place where statistics samples become React state. The live
+charts refuse to, because they redraw six hundred points per sample; here the
+payload is a handful of edge labels at 1 Hz, which is cheaper to reconcile than
+to route around. When the stream closes the labels are cleared, because a stale
+rate left on screen reads as traffic still flowing.
+
 ### Fonts
 
 Manrope and JetBrains Mono ship from `@fontsource`, which places the woff2 files
@@ -565,10 +697,15 @@ not survive the restart, so failing them is the honest default.
 
 | Layer | Approach |
 |---|---|
+| Wire shapes | Asserted literally, not by round trip. An enum whose variant fields serialise snake_case round-trips against itself perfectly and still disagrees with every other type on the wire — `AppSpec` did exactly that until a literal assertion caught it. |
 | `flux-core` | Pure unit tests: enum round-trips, `PciAddr` rejection cases, validation paths |
 | `flux-portd` | Allowlist enforcement, refusal before any hardware call |
 | `fluxd` | Error mapping, role checks, validation rules, mock controller behaviour |
 | RFC 2544 search | A pure `(config, trials) -> action` function, exhaustively table-tested: convergence against a simulated device, all-pass, all-fail, boundary tolerance, iteration cutoff, no repeated rates, termination at any resolution |
+| Load profiles | Pool capacity arithmetic, ramp integral, and the mock's connection accounting across a stop |
+| TLS | Well-formed material, wrong-box diagnosis, chains, RSA and PKCS#8 keys, install-then-remove leaving nothing behind |
+| Analytics | Exact-equality assertions on the composed selector, so an escape applied in the wrong place fails |
+| Config transfer | Round-trip by name, skip-on-collision, and unresolved references reported rather than dropped |
 | State machine | Driven end to end against `MockEngine` with injected loss, against a live Postgres |
 | Report | Rendered and asserted on: no scripts, no external references, operator text escaped, caveats present |
 | pcap import | Decoded stacks, truncation notes, dropped options, and a fuzz pass that truncates and corrupts a valid capture at every offset |
@@ -588,6 +725,8 @@ no `unwrap`/`expect` on request or engine control paths, and a tracing span with
 | Postgres version | 16 | 16+ (developed against 18) | No version-specific features are used. |
 | ZeroMQ crate | `zmq` / `tmq` | `zeromq` (pure Rust) | `zmq` links libzmq, which without a system package must be built from source by cmake — making `cargo build` fail on any machine without a C toolchain, including CI. The protocol on the wire is identical and the choice is isolated behind `engine::trex::transport::RpcTransport`. |
 | Frame hex preview | Client-side render | `POST /flows/preview` | The preview needs EtherTypes, lengths, and three checksums. Duplicating that in TypeScript means two implementations that will disagree, and the one that matters is the one the engine uses. |
+| Topology layout | Editable canvas | Derived from the flow graph | The flows already say which port faces which way. A hand-placed layout is a second copy of that, and the second copy is the one that goes stale. |
+| Certificate expiry | Parsed from the certificate | Reported where determinable | Reading `notAfter` properly needs an X.509 parser; `tls::Material` carries a `TODO(tls-verify)` rather than guessing at DER offsets. |
 
 ---
 
@@ -604,6 +743,10 @@ no `unwrap`/`expect` on request or engine control paths, and a tracing span with
 
 - **`TrexEngine` is unverified against a live TRex.** Structured, unit-tested,
   and marked; running it needs DPDK-capable hardware.
+- **The web UI has no automated tests.** It is exercised end to end by hand
+  against the mock engine. TypeScript strict mode and the zod parse at the API
+  boundary catch shape errors; nothing catches a behavioural regression in a
+  page.
 - **`MockEngine` does not model a device under test.** Received counters are
   transmitted counters minus injected loss, so a mock run measures the mock. It
   exercises the pipeline end to end; it does not predict a result. The injected

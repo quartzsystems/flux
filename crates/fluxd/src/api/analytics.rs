@@ -53,6 +53,12 @@ pub const AVAILABLE_METRICS: &[MetricInfo] = &[
     MetricInfo { name: "flux_stream_rx_pps", label: "Flow receive rate", unit: "pps" },
     MetricInfo { name: "flux_stream_loss_pps", label: "Flow loss rate", unit: "pps" },
     MetricInfo { name: "flux_stream_latency_us", label: "Flow latency", unit: "µs" },
+    MetricInfo { name: "flux_conn_cps", label: "Connections established", unit: "conn/s" },
+    MetricInfo { name: "flux_conn_active", label: "Connections open", unit: "connections" },
+    MetricInfo { name: "flux_conn_errors_per_sec", label: "Connection errors", unit: "errors/s" },
+    MetricInfo { name: "flux_conn_failure_pct", label: "Connection failure rate", unit: "%" },
+    MetricInfo { name: "flux_conn_tx_bps", label: "Application transmit", unit: "bit/s" },
+    MetricInfo { name: "flux_conn_rx_bps", label: "Application receive", unit: "bit/s" },
 ];
 
 /// One chartable metric.
