@@ -1,6 +1,6 @@
 [Unit]
 Description=Flux privileged port helper
-Documentation=https://github.com/zagdrath/flux
+Documentation=https://github.com/quartzsystems/flux
 Before=fluxd.service
 
 [Service]

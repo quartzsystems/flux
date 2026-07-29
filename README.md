@@ -35,7 +35,7 @@ hardware.
 On a fresh AlmaLinux, Rocky, RHEL, Debian, or Ubuntu box with systemd:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/quartzsystems/flux/main/deploy/install.sh | sudo bash
 ```
 
 That installs PostgreSQL and VictoriaMetrics, creates the `flux` role and
@@ -52,7 +52,7 @@ To look around without hardware, install the mock engine — a simulated four-po
 100G chassis that drives the entire UI:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh   | sudo bash -s -- --engine mock
+curl -fsSL https://raw.githubusercontent.com/quartzsystems/flux/main/deploy/install.sh   | sudo bash -s -- --engine mock
 ```
 
 <details>
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.s
 The same command. Run it again and it upgrades in place:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/quartzsystems/flux/main/deploy/install.sh | sudo bash
 ```
 
 - `fluxd.env` and `portd.yaml` are never overwritten. The new release's example

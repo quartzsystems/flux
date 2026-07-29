@@ -8,7 +8,7 @@ edition = "2021"
 rust-version = "1.82"
 license = "MIT"
 authors = ["Quartz Systems"]
-repository = "https://github.com/zagdrath/flux"
+repository = "https://github.com/quartzsystems/flux"
 
 [workspace.dependencies]
 flux-core = { path = "crates/flux-core" }

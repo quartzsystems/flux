@@ -69,8 +69,12 @@ cp -a "$ROOT/deploy/sql/."     "$root/sql/"
 
 install -m0755 "$ROOT/deploy/install.sh" "$root/install.sh"
 install -m0644 "$ROOT/VERSION"           "$root/VERSION"
-install -m0644 "$ROOT/README.md"         "$root/README.md"
 install -m0644 "$ROOT/LICENSE.md"        "$root/LICENSE.md"
+
+# README.md is deliberately not shipped. Its links are relative to the
+# repository — docs/, .env.example, the brand SVG — and none of those exist in
+# a tarball, so it would arrive as a page of dangling links. `install.sh --help`
+# and the release notes cover what someone unpacking this needs.
 
 mkdir -p "$OUT"
 tarball="$OUT/$name.tar.gz"

@@ -1,6 +1,6 @@
 [Unit]
 Description=Flux appliance daemon
-Documentation=https://github.com/zagdrath/flux
+Documentation=https://github.com/quartzsystems/flux
 # Postgres must be accepting connections before migrations run, and the port
 # helper before the first inventory refresh. Neither is Requires=: fluxd logs
 # and carries on if the helper is missing, so an operator can still reach the UI

@@ -2,7 +2,7 @@
 #
 # Installs, upgrades, and removes Flux on a Debian- or EL-based appliance.
 #
-#     curl -fsSL https://raw.githubusercontent.com/zagdrath/flux/main/deploy/install.sh | sudo bash
+#     curl -fsSL https://raw.githubusercontent.com/quartzsystems/flux/main/deploy/install.sh | sudo bash
 #
 # Running it again upgrades in place: configuration, the database, and run
 # history are preserved, the previous binaries are kept, and a start that fails
@@ -15,7 +15,7 @@ set -euo pipefail
 
 # --- Defaults ---------------------------------------------------------------
 
-readonly REPO="zagdrath/flux"
+readonly REPO="quartzsystems/flux"
 readonly SERVICE_USER="flux"
 readonly DB_NAME="flux"
 readonly DB_USER="flux"
