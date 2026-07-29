@@ -116,6 +116,15 @@ jobs:
       image: ${{ matrix.image }}
       options: --user root
 
+    # Steps in a container job run under `sh`, not the `bash` a job on the
+    # runner itself gets. On EL that is bash wearing a different name and every
+    # bashism works by accident; on Debian and Ubuntu it is dash, which has no
+    # `pipefail` — so the same script passed on two images and failed on the
+    # other two. Naming the shell makes all four run the same thing.
+    defaults:
+      run:
+        shell: bash
+
     strategy:
       fail-fast: false
       matrix:

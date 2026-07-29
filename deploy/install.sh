@@ -758,6 +758,18 @@ install_victoria_metrics() {
 
 # --- Firewall ---------------------------------------------------------------
 
+# The name to tell the operator to point a browser at.
+#
+# `hostname` is not guaranteed to be installed — it is absent from several
+# minimal EL images — so bash's own $HOSTNAME is the fallback before giving up
+# and naming the loopback, which at least works from the console.
+appliance_host() {
+    local name=""
+    have hostname && name="$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)"
+    [[ -z $name ]] && name="${HOSTNAME:-}"
+    printf '%s' "${name:-127.0.0.1}"
+}
+
 http_port() {
     local bind port
     bind="$(config_value FLUX_BIND || true)"
@@ -909,7 +921,7 @@ print_summary() {
 
     cat <<EOF
 
-  Open  http://$(hostname -f 2>/dev/null || hostname):$(http_port)/
+  Open  http://$(appliance_host):$(http_port)/
 
   The first administrator password was generated and written to the journal
   exactly once, on this first start:

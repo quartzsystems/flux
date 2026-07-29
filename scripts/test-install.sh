@@ -92,6 +92,25 @@ check "follows a changed port"    "9443" "$(http_port)"
 set_config_value FLUX_BIND "nonsense"
 check "falls back when unparseable" "8080" "$(http_port)"
 
+printf '\nappliance hostname\n'
+
+# `hostname` is absent from several minimal EL images, so the summary must not
+# depend on it. Each fallback is exercised in a subshell so shadowing `have`
+# does not leak into the checks below.
+check "names the loopback when nothing else is known" "127.0.0.1" \
+    "$(HOSTNAME="" bash -c '
+        eval "$(head -n -1 "'"$INSTALLER"'")"
+        have() { [[ $1 != hostname ]] && command -v "$1" >/dev/null 2>&1; }
+        appliance_host
+    ')"
+
+check "falls back to the shell's own HOSTNAME" "from-the-shell" \
+    "$(HOSTNAME="from-the-shell" bash -c '
+        eval "$(head -n -1 "'"$INSTALLER"'")"
+        have() { [[ $1 != hostname ]] && command -v "$1" >/dev/null 2>&1; }
+        appliance_host
+    ')"
+
 printf '\nchecksum verification\n'
 
 verdict() { verify_checksum "$1" "$2" 2>/dev/null && printf 'accepted' || printf 'rejected'; }
