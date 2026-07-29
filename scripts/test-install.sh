@@ -13,7 +13,11 @@
 
 set -euo pipefail
 
-readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Assigned before being made readonly: `readonly X="$(cmd)"` returns the status
+# of `readonly`, not of the command substitution, so a failing cd would go
+# unnoticed under `set -e`.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly ROOT
 readonly INSTALLER="$ROOT/deploy/install.sh"
 
 failures=0
@@ -137,15 +141,21 @@ guard_survives() {
 
 # Arranged so each function actually reaches its tail rather than returning at
 # an early guard — a test that passes because it short-circuited proves nothing.
+#
+# Exported rather than plainly assigned. These are read by the installer's
+# functions, which arrive through the `eval` above; shellcheck cannot follow that
+# and reports every one of them as written-but-never-read. `export` is its own
+# documented answer for a variable used outside the file, and it is accurate
+# here — these are handed to code defined elsewhere.
 readonly SANDBOX="$SYSCONF"
-BACKUP_ROOT="$SANDBOX/backups"
-PREFIX="$SANDBOX/prefix"          # so $PREFIX/bin/fluxd is absent
-WEBROOT="$SANDBOX/webroot"        # absent too
-STAGE="$SANDBOX/stage"
-BACKUP_DIR=""
-IS_UPGRADE=true                   # past the early return, into the copy guards
-DO_METRICS=false
-PURGE=false
+export BACKUP_ROOT="$SANDBOX/backups"
+export PREFIX="$SANDBOX/prefix"   # so $PREFIX/bin/fluxd is absent
+export WEBROOT="$SANDBOX/webroot" # absent too
+export STAGE="$SANDBOX/stage"
+export BACKUP_DIR=""
+export IS_UPGRADE=true            # past the early return, into the copy guards
+export DO_METRICS=false
+export PURGE=false
 mkdir -p "$BACKUP_ROOT" "$STAGE/config"
 : > "$STAGE/config/fluxd.env.example"
 : > "$STAGE/config/portd.yaml.example"
@@ -164,7 +174,7 @@ check "cleanup with the staging dir gone"       survived "$(guard_survives clean
 
 # And the guard itself is worth checking: if this pattern ever stopped being a
 # hazard, the tests above would be protecting against nothing.
-hazard() { local unused; [[ -e /definitely/not/here ]] && echo found; }
+hazard() { [[ -e /definitely/not/here ]] && echo found; }
 check "a bare trailing guard really does kill the caller" died "$(guard_survives hazard)"
 
 printf '\n'

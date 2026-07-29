@@ -85,6 +85,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Every one of these is invoked by path, here and in the Makefile, so a
+      # lost executable bit is a failure rather than a warning. Easy to lose on
+      # Windows, where git's core.filemode is false and a local chmod is never
+      # recorded.
+      - name: Executable bits
+        run: make exec-check
+
       - name: ShellCheck
         run: |
           sudo apt-get update -qq

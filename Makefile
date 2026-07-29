@@ -134,11 +134,21 @@ serve: web-build ## Build the UI and serve everything from fluxd alone
 	FLUX_WEB_ROOT=$(CURDIR)/$(WEB)/out $(CARGO) run -p fluxd
 
 .PHONY: ci
-ci: version-check fmt-check lint test web-lint web-build install-check ## Everything CI runs
+ci: version-check exec-check fmt-check lint test web-lint web-build shell-lint install-check ## Everything CI runs
+
+.PHONY: shell-lint
+shell-lint: ## ShellCheck the installer and the helper scripts
+	@if command -v shellcheck >/dev/null 2>&1; then 		shellcheck --severity=warning deploy/install.sh scripts/*.sh && echo "shellcheck: clean"; 	else 		echo "shellcheck: not installed, skipping (CI runs it regardless)"; 	fi
 
 .PHONY: install-check
 install-check: ## Exercise the installer's version and config logic
 	@scripts/test-install.sh
+
+# The scripts are invoked by path, so a lost executable bit is a CI failure
+# rather than a warning. Easy to lose on Windows, where core.filemode is false.
+.PHONY: exec-check
+exec-check: ## Verify the scripts are executable in git's index
+	@fail=0; for f in deploy/install.sh scripts/*.sh; do 		mode=$$(git ls-files -s "$$f" | cut -d' ' -f1); 		if [ "$$mode" != "100755" ]; then 			echo "$$f is $$mode in the index, expected 100755"; 			echo "  fix: git update-index --chmod=+x $$f"; 			fail=1; 		fi; 	done; 	[ $$fail -eq 0 ] && echo "exec bits: ok"; exit $$fail
 
 .PHONY: clean
 clean: ## Remove build output

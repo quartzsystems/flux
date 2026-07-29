@@ -12,7 +12,11 @@
 
 set -euo pipefail
 
-readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Assigned before being made readonly: `readonly X="$(cmd)"` returns the status
+# of `readonly`, not of the command substitution, so a failing cd would go
+# unnoticed under `set -e`.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly ROOT
 
 TARGET=""
 OUT="$ROOT/dist"
