@@ -92,6 +92,69 @@ check "follows a changed port"    "9443" "$(http_port)"
 set_config_value FLUX_BIND "nonsense"
 check "falls back when unparseable" "8080" "$(http_port)"
 
+printf '\npg_hba rewriting\n'
+
+# This shipped broken: the sed used `|` as its delimiter while the pattern needs
+# `|` to alternate between the two loopback forms, so sed read the first one as
+# the end of the expression and died with "unknown option to `s'" on a real
+# AlmaLinux box, taking the rest of the install with it.
+HBA="$(mktemp -d)"
+
+stock_el_hba() {
+    cat > "$1" <<'EOF'
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# "local" is for Unix domain socket connections only
+local   all             all                                     peer
+# IPv4 local connections:
+host    all             all             127.0.0.1/32            ident
+# IPv6 local connections:
+host    all             all             ::1/128                 ident
+# Allow replication connections from localhost
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            ident
+host    replication     all             ::1/128                 ident
+EOF
+}
+
+stock_el_hba "$HBA/pg_hba.conf"
+rewrite_hba_loopback "$HBA/pg_hba.conf" && rewritten=changed || rewritten=untouched
+check "a stock EL file is rewritten" changed "$rewritten"
+
+check "IPv4 loopback now uses scram" "1" \
+    "$(grep -c '^host    all             all             127\.0\.0\.1/32            scram-sha-256$' "$HBA/pg_hba.conf")"
+check "IPv6 loopback now uses scram" "1" \
+    "$(grep -c '^host    all             all             ::1/128                 scram-sha-256$' "$HBA/pg_hba.conf")"
+
+# Replication is a different service with different exposure; changing its auth
+# was never asked for and would be a surprise.
+check "replication lines are left alone" "2" \
+    "$(grep -c '^host    replication .* ident$' "$HBA/pg_hba.conf")"
+check "the local peer line survives" "1" \
+    "$(grep -c '^local   all             all                                     peer$' "$HBA/pg_hba.conf")"
+check "no ident remains for host all all" "0" \
+    "$(grep -Ec '^host[[:space:]]+all[[:space:]]+all.*ident$' "$HBA/pg_hba.conf")"
+
+# A backup is taken before the file is touched, so there is a way back.
+check "the original is backed up" "1" \
+    "$(find "$HBA" -name 'pg_hba.conf.flux-backup.*' | wc -l | tr -d ' ')"
+
+# Running it again must be a no-op rather than a second backup and rewrite.
+rewrite_hba_loopback "$HBA/pg_hba.conf" && rewritten=changed || rewritten=untouched
+check "a second pass changes nothing" untouched "$rewritten"
+
+# Debian ships scram already, and a hand-tuned file must not be second-guessed.
+printf 'host    all             all             127.0.0.1/32            scram-sha-256\n' \
+    > "$HBA/debian.conf"
+rewrite_hba_loopback "$HBA/debian.conf" && rewritten=changed || rewritten=untouched
+check "an already-scram file is untouched" untouched "$rewritten"
+
+printf 'host    all             all             127.0.0.1/32            md5\n' > "$HBA/custom.conf"
+rewrite_hba_loopback "$HBA/custom.conf" && rewritten=changed || rewritten=untouched
+check "a customised method is untouched" untouched "$rewritten"
+
+rm -rf "$HBA"
+
 printf '\nappliance hostname\n'
 
 # `hostname` is absent from several minimal EL images, so the summary must not

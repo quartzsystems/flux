@@ -613,23 +613,44 @@ start_postgres() {
 # EL's stock pg_hba.conf answers loopback TCP with `ident`, which needs an ident
 # daemon nobody runs; Debian's already uses scram. Only the two stock loopback
 # lines are touched, so a hand-tuned file is left exactly as it is.
+# Rewrites the two stock loopback lines in a pg_hba.conf from ident to scram.
+#
+# Only `host all all 127.0.0.1/32 ident` and its IPv6 twin are touched. The
+# replication lines below them say `ident` too and are deliberately left alone,
+# as is any line an administrator has already changed — if the file does not
+# look stock, this does nothing rather than guess.
+#
+# Separated from the service handling around it so it can be tested against a
+# real pg_hba.conf without a PostgreSQL to ask. Returns 0 when it changed the
+# file, 1 when there was nothing to change.
+rewrite_hba_loopback() {
+    local hba="$1" tmp
+
+    grep -Eq '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+ident[[:space:]]*$' \
+        "$hba" || return 1
+
+    cp -a "$hba" "$hba.flux-backup.$(date -u +%Y%m%dT%H%M%SZ)"
+
+    tmp="$(mktemp)"
+    # `#` as the delimiter, not `|`. The pattern needs `|` to alternate between
+    # the two loopback forms, and sed reads the first one it meets as the end of
+    # the expression — which is exactly how this shipped broken.
+    sed -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)ident[[:space:]]*$#\1scram-sha-256#' \
+        "$hba" > "$tmp"
+    cat "$tmp" > "$hba"
+    rm -f "$tmp"
+}
+
 allow_local_password_auth() {
     local hba
     hba="$(as_postgres psql -tAc 'SHOW hba_file' 2>/dev/null | tr -d '[:space:]')" || return 0
     [[ -n $hba && -f $hba ]] || return 0
 
-    grep -Eq '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+ident[[:space:]]*$' \
-        "$hba" || return 0
-
     step "Allowing password authentication on loopback in $hba"
-    cp -a "$hba" "$hba.flux-backup.$(date -u +%Y%m%dT%H%M%SZ)"
-
-    local tmp
-    tmp="$(mktemp)"
-    sed -E 's|^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)ident[[:space:]]*$|\1scram-sha-256|' \
-        "$hba" > "$tmp"
-    cat "$tmp" > "$hba"
-    rm -f "$tmp"
+    if ! rewrite_hba_loopback "$hba"; then
+        info "no stock ident lines to change; leaving $hba alone"
+        return 0
+    fi
 
     # Spelled out rather than left to `set -e`: if neither works the connection
     # test below fails anyway, and this says which step actually went wrong.
@@ -913,11 +934,18 @@ print_summary() {
         return 0
     fi
 
-    if ! $FRESH_CONFIG; then
+    # Keyed on whether a version was already installed, not on whether the
+    # config file existed. A first install that failed part way leaves the
+    # config behind, and the retry that fixes it is still a first install —
+    # reporting it as "upgraded from " with nothing after the word would be
+    # both wrong and unhelpful at exactly the wrong moment.
+    if $IS_UPGRADE; then
         info "upgraded from $CURRENT_VERSION; configuration and data untouched"
         [[ -n $BACKUP_DIR ]] && info "the previous version is backed up at $BACKUP_DIR"
         return 0
     fi
+
+    $FRESH_CONFIG || info "kept the configuration already in $SYSCONF"
 
     cat <<EOF
 
