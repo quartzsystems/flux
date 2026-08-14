@@ -18,7 +18,7 @@
 
 import '@xyflow/react/dist/style.css';
 
-import { IconAlertTriangle, IconDeviceDesktopAnalytics, IconPlus } from '@tabler/icons-react';
+import { Monitor, Plus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Background,
@@ -35,7 +35,17 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
-import { Alert, Badge, LinkBadge, PageHeader, Skeleton, Surface } from '@/components/ui';
+import {
+  Alert,
+  Badge,
+  Empty,
+  LinkBadge,
+  Page,
+  PageBody,
+  PageHeader,
+  Skeleton,
+  Surface,
+} from '@/components/ui';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import {
   DUT_FIELDS,
@@ -110,97 +120,77 @@ function Topology() {
   const loading = ports.isLoading || flows.isLoading;
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Topology"
         subtitle="Ports, the device under test, and the flows between them"
       />
-
-      {flows.error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>
+      <PageBody>
+        {flows.error ? (
+          <Alert tone="danger">
             {flows.error instanceof ApiError ? flows.error.message : 'Flows could not be loaded.'}
-          </span>
-        </Alert>
-      ) : null}
+          </Alert>
+        ) : null}
 
-      <Surface title="Diagram" padded={false}>
-        {loading ? (
-          <div style={{ padding: 18 }}>
+        <Surface title="Diagram" padded={loading}>
+          {loading ? (
             <Skeleton height={CANVAS_HEIGHT - 36} />
-          </div>
-        ) : (ports.data ?? []).length === 0 ? (
-          <EmptyCanvas>
-            No ports are known yet. Discover them from the ports page and the diagram fills in.
-          </EmptyCanvas>
-        ) : links.length === 0 ? (
-          <EmptyCanvas>
-            No flows are defined, so there is nothing crossing the device yet. Every port is
-            shown below as unattached.
-          </EmptyCanvas>
-        ) : null}
+          ) : (ports.data ?? []).length === 0 ? (
+            <Empty icon={<Monitor size={28} />}>
+              No ports are known yet. Discover them from the ports page and the diagram fills in.
+            </Empty>
+          ) : links.length === 0 ? (
+            <Empty icon={<Monitor size={28} />}>
+              No flows are defined, so there is nothing crossing the device yet. Every port is
+              shown below as unattached.
+            </Empty>
+          ) : null}
 
-        {!loading && (ports.data ?? []).length > 0 ? (
-          <div style={{ height: CANVAS_HEIGHT }}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={NODE_TYPES}
-              fitView
-              fitViewOptions={{ padding: 0.18 }}
-              minZoom={0.3}
-              maxZoom={1.6}
-              // The diagram is derived, so letting it be dragged would invite an
-              // operator to arrange something the next render throws away.
-              nodesDraggable={false}
-              nodesConnectable={false}
-              edgesFocusable={false}
-              proOptions={{ hideAttribution: true }}
+          {!loading && (ports.data ?? []).length > 0 ? (
+            <div style={{ height: CANVAS_HEIGHT }}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={NODE_TYPES}
+                fitView
+                fitViewOptions={{ padding: 0.18 }}
+                minZoom={0.3}
+                maxZoom={1.6}
+                // The diagram is derived, so letting it be dragged would invite an
+                // operator to arrange something the next render throws away.
+                nodesDraggable={false}
+                nodesConnectable={false}
+                edgesFocusable={false}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#252830" />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            </div>
+          ) : null}
+
+          {unplaced.length > 0 ? (
+            <div
+              className="row gap-8"
+              style={{
+                padding: '12px 18px',
+                borderTop: '1px solid var(--qz-divider)',
+                flexWrap: 'wrap',
+              }}
             >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#252830" />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </div>
-        ) : null}
+              <span className="field-label">Not in any flow</span>
+              {unplaced.map((port) => (
+                <Badge key={port.id} tone="muted">
+                  {port.name}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </Surface>
 
-        {unplaced.length > 0 ? (
-          <div
-            style={{
-              padding: '12px 18px',
-              borderTop: '1px solid var(--qz-divider)',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <span className="field-label" style={{ marginRight: 4 }}>
-              Not in any flow
-            </span>
-            {unplaced.map((port) => (
-              <Badge key={port.id} tone="muted">
-                {port.name}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-      </Surface>
-
-      <DutPanel dut={dut.data ?? {}} editable={can('operator')} />
-    </div>
-  );
-}
-
-/** A placeholder inside the diagram surface. */
-function EmptyCanvas({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="stack gap-8" style={{ alignItems: 'center', padding: '44px 24px' }}>
-      <IconDeviceDesktopAnalytics size={28} stroke={1.4} style={{ color: 'var(--qz-fg-4)' }} />
-      <p className="dim" style={{ margin: 0, fontSize: 13, textAlign: 'center', maxWidth: 460 }}>
-        {children}
-      </p>
-    </div>
+        <DutPanel dut={dut.data ?? {}} editable={can('operator')} />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -390,11 +380,11 @@ function build(
         markerEnd: { type: MarkerType.ArrowClosed, color: lossy ? '#ff5d6c' : '#00d992' },
         style: { stroke: lossy ? '#ff5d6c' : '#00d992', strokeWidth: 1.6 },
         labelStyle: {
-          fill: lossy ? '#ff5d6c' : '#c8ccd4',
+          fill: lossy ? '#ff5d6c' : '#d7d9de',
           fontFamily: 'var(--qz-font-mono)',
           fontSize: 10.5,
         },
-        labelBgStyle: { fill: '#12141b', fillOpacity: 0.92 },
+        labelBgStyle: { fill: '#161920', fillOpacity: 0.92 },
         labelBgPadding: [5, 3] as [number, number],
         labelBgBorderRadius: 4,
       };
@@ -463,6 +453,16 @@ const NODE_TYPES = { port: PortNode, dut: DutNode };
 // The device under test
 // ---------------------------------------------------------------------------
 
+/** Written-out labels for the well-known DUT fields. */
+const DUT_LABELS: Record<string, string> = {
+  name: 'Name',
+  vendor: 'Vendor',
+  model: 'Model',
+  firmware: 'Firmware',
+  serial: 'Serial',
+  notes: 'Notes',
+};
+
 /** Editor for the description carried into every report. */
 function DutPanel({ dut, editable }: { dut: Dut; editable: boolean }) {
   const queryClient = useQueryClient();
@@ -514,52 +514,52 @@ function DutPanel({ dut, editable }: { dut: Dut; editable: boolean }) {
               setDraft((rows) => [...rows, ['', '']]);
             }}
           >
-            <IconPlus size={14} stroke={2} />
+            <Plus size={14} />
             Add field
           </button>
         ) : null
       }
     >
       <div className="stack gap-14">
-        <p className="dim" style={{ margin: 0, fontSize: 13 }}>
+        <p className="prose">
           Copied into every run started from here on, and printed on its report. A run keeps the
           description it was started with, so changing this does not rewrite history.
         </p>
 
-        {error ? (
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
-        ) : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
         <div className="stack gap-8">
           {draft.map(([key, value], index) => {
             const named = (DUT_FIELDS as readonly string[]).includes(key);
+            const valueId = `dut-field-${index}`;
             return (
               <div
                 key={index}
                 style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 10 }}
               >
                 {named ? (
-                  <span
+                  <label
                     className="field-label"
-                    style={{ alignSelf: 'center', textTransform: 'capitalize' }}
+                    htmlFor={valueId}
+                    style={{ alignSelf: 'center' }}
                   >
-                    {key}
-                  </span>
+                    {DUT_LABELS[key] ?? key}
+                  </label>
                 ) : (
                   <input
                     className="input"
                     placeholder="field name"
+                    aria-label="Field name"
                     value={key}
                     disabled={!editable}
                     onChange={(e) => set(index, e.target.value, value)}
                   />
                 )}
                 <input
+                  id={valueId}
                   className="input"
                   placeholder={editable ? 'not set' : '—'}
+                  aria-label={named ? undefined : 'Field value'}
                   value={value}
                   disabled={!editable}
                   onChange={(e) => set(index, key, e.target.value)}
@@ -579,16 +579,10 @@ function DutPanel({ dut, editable }: { dut: Dut; editable: boolean }) {
             >
               {save.isPending ? 'Saving…' : 'Save'}
             </button>
-            {saved ? (
-              <span className="muted" style={{ fontSize: 12.5 }}>
-                Saved.
-              </span>
-            ) : null}
+            {saved ? <p className="note">Saved.</p> : null}
           </div>
         ) : (
-          <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-            Operators and administrators can edit this.
-          </p>
+          <p className="note">Operators and administrators can edit this.</p>
         )}
       </div>
     </Surface>

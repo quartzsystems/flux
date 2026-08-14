@@ -9,14 +9,13 @@
  */
 
 import {
-  IconAlertTriangle,
-  IconClock,
-  IconCpu,
-  IconDatabase,
-  IconPlugConnected,
-  IconRefresh,
-  IconServer2,
-} from '@tabler/icons-react';
+  Clock,
+  Cpu,
+  Database,
+  EthernetPort,
+  RefreshCw,
+  Server,
+} from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 
@@ -24,12 +23,16 @@ import { AppShell } from '@/components/AppShell';
 import {
   Alert,
   Badge,
+  Dash,
+  Empty,
   EmptyRow,
   Kpi,
+  KpiSkeleton,
   LinkBadge,
   ModeBadge,
+  Page,
+  PageBody,
   PageHeader,
-  Skeleton,
   Surface,
   TableSkeleton,
 } from '@/components/ui';
@@ -39,7 +42,6 @@ import { isTerminal, type Health, type Run, type SubsystemHealth } from '@/lib/a
 import {
   formatBytes,
   formatDuration,
-  formatRelative,
   formatSpeed,
   formatTimestamp,
 } from '@/lib/format';
@@ -68,7 +70,7 @@ function Dashboard() {
   });
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Dashboard"
         subtitle={
@@ -86,100 +88,90 @@ function Dashboard() {
             }}
             disabled={health.isFetching}
           >
-            <IconRefresh size={15} stroke={1.8} />
+            <RefreshCw size={15} />
             Refresh
           </button>
         }
       />
 
-      {health.data?.mocked ? (
-        <Alert tone="warn">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>
+      <PageBody>
+        {health.data?.mocked ? (
+          <Alert tone="warn">
             This appliance is running in <strong>mock mode</strong>. No hardware is being driven
             and every statistic is simulated.
-          </span>
-        </Alert>
-      ) : null}
+          </Alert>
+        ) : null}
 
-      {health.error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>Could not read appliance health. {String(health.error)}</span>
-        </Alert>
-      ) : null}
+        {health.error ? (
+          <Alert tone="danger">Could not read appliance health. {String(health.error)}</Alert>
+        ) : null}
 
-      <HealthKpis health={health.data} loading={health.isLoading} />
+        <HealthKpis health={health.data} loading={health.isLoading} />
 
-      <SubsystemPanel health={health.data} loading={health.isLoading} />
+        <SubsystemPanel health={health.data} loading={health.isLoading} />
 
-      <Surface
-        title="Ports"
-        actions={
-          <Link href="/ports" className="btn btn-ghost btn-sm">
-            Manage ports
-          </Link>
-        }
-        padded={false}
-      >
-        <div className="qz-table-wrap">
-          <table className="qz-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>PCI address</th>
-                <th>Link</th>
-                <th>Mode</th>
-                <th>Speed</th>
-                <th>Group</th>
-                <th>Reserved by</th>
-              </tr>
-            </thead>
-            {ports.isLoading ? (
-              <TableSkeleton columns={7} />
-            ) : (
-              <tbody>
-                {ports.data && ports.data.length > 0 ? (
-                  ports.data.map((port) => (
-                    <tr key={port.id}>
-                      <td className="mono">{port.name}</td>
-                      <td className="mono">{port.pciAddr}</td>
-                      <td>
-                        <LinkBadge state={port.linkState} />
-                      </td>
-                      <td>
-                        <ModeBadge mode={port.mode} />
-                      </td>
-                      <td className="mono">{formatSpeed(port.speedMbps)}</td>
-                      <td>
-                        {port.group ? (
-                          <span className="mono">{port.group.name}</span>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td>
-                        {port.reservation ? (
-                          <span className="mono">{port.reservation.username}</span>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <EmptyRow columns={7}>
-                    No ports have been discovered. Refresh the inventory from the ports page.
-                  </EmptyRow>
-                )}
-              </tbody>
-            )}
-          </table>
-        </div>
-      </Surface>
+        <Surface
+          title="Ports"
+          actions={
+            <Link href="/ports" className="btn btn-ghost btn-sm">
+              Manage ports
+            </Link>
+          }
+          padded={false}
+        >
+          <div className="qz-table-wrap">
+            <table className="qz-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>PCI address</th>
+                  <th>Link</th>
+                  <th>Mode</th>
+                  <th>Speed</th>
+                  <th>Group</th>
+                  <th>Reserved by</th>
+                </tr>
+              </thead>
+              {ports.isLoading ? (
+                <TableSkeleton columns={7} />
+              ) : (
+                <tbody>
+                  {ports.data && ports.data.length > 0 ? (
+                    ports.data.map((port) => (
+                      <tr key={port.id}>
+                        <td className="mono">{port.name}</td>
+                        <td className="mono">{port.pciAddr}</td>
+                        <td>
+                          <LinkBadge state={port.linkState} />
+                        </td>
+                        <td>
+                          <ModeBadge mode={port.mode} />
+                        </td>
+                        <td className="mono">{formatSpeed(port.speedMbps)}</td>
+                        <td>{port.group ? <span className="mono">{port.group.name}</span> : <Dash />}</td>
+                        <td>
+                          {port.reservation ? (
+                            <span className="mono">{port.reservation.username}</span>
+                          ) : (
+                            <Dash />
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <EmptyRow columns={7}>
+                      No ports have been discovered. Refresh the inventory from the ports page.
+                    </EmptyRow>
+                  )}
+                </tbody>
+              )}
+            </table>
+          </div>
+        </Surface>
 
-      <RunPanels />
-    </div>
+        <RunPanels />
+      </PageBody>
+    </Page>
   );
 }
 
@@ -242,43 +234,39 @@ function RunList({
   loading: boolean;
   empty: string;
 }) {
-  if (loading) {
-    return (
-      <div className="stack gap-8" style={{ padding: 16 }}>
-        <Skeleton height={14} />
-        <Skeleton height={14} />
-      </div>
-    );
-  }
-
-  if (runs.length === 0) {
-    return (
-      <p className="dim" style={{ margin: 0, padding: 16, fontSize: 13 }}>
-        {empty}
-      </p>
-    );
+  if (!loading && runs.length === 0) {
+    return <Empty>{empty}</Empty>;
   }
 
   return (
     <div className="qz-table-wrap">
       <table className="qz-table">
-        <tbody>
-          {runs.map((run) => (
-            <tr key={run.id}>
-              <td className="mono">
-                <Link href={`/runs/${run.id}/`} style={{ color: 'var(--qz-accent)' }}>
-                  {run.testName}
-                </Link>
-              </td>
-              <td>
-                <Badge tone={runStateTone(run.state)}>{run.state}</Badge>
-              </td>
-              <td className="dim" style={{ fontSize: 12, textAlign: 'right' }}>
-                {formatRelative(run.startedAt)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
+        <thead>
+          <tr>
+            <th>Test</th>
+            <th>State</th>
+            <th className="right">Started</th>
+          </tr>
+        </thead>
+        {loading ? (
+          <TableSkeleton columns={3} rows={2} />
+        ) : (
+          <tbody>
+            {runs.map((run) => (
+              <tr key={run.id}>
+                <td className="mono">
+                  <Link href={`/runs/${run.id}/`} className="link">
+                    {run.testName}
+                  </Link>
+                </td>
+                <td>
+                  <Badge tone={runStateTone(run.state)}>{run.state}</Badge>
+                </td>
+                <td className="dim right">{formatTimestamp(run.startedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        )}
       </table>
     </div>
   );
@@ -290,12 +278,7 @@ function HealthKpis({ health, loading }: { health: Health | undefined; loading: 
     return (
       <div className="kpi-grid">
         {Array.from({ length: 4 }, (_, i) => (
-          <div className="kpi" key={i}>
-            <Skeleton height={11} width={90} />
-            <div style={{ marginTop: 12 }}>
-              <Skeleton height={30} width={120} />
-            </div>
-          </div>
+          <KpiSkeleton key={i} />
         ))}
       </div>
     );
@@ -310,33 +293,38 @@ function HealthKpis({ health, loading }: { health: Health | undefined; loading: 
 
   return (
     <div className="kpi-grid">
+      {/* The 32px slot carries a number; the health verdict lives in the foot
+          as a badge, where a word belongs. */}
       <Kpi
         label="Appliance"
-        icon={<IconServer2 size={12} stroke={2} />}
-        value={health.healthy ? 'Ready' : 'Degraded'}
+        icon={<Server size={12} />}
+        value={formatDuration(health.uptimeSecs)}
         foot={
-          health.healthy
-            ? 'All subsystems responding'
-            : 'One or more subsystems are not responding'
+          <span className="row gap-6">
+            <Badge tone={health.healthy ? 'ok' : 'crit'}>
+              {health.healthy ? 'ready' : 'degraded'}
+            </Badge>
+            {health.healthy ? 'all subsystems responding' : 'a subsystem is not responding'}
+          </span>
         }
       />
       <Kpi
         label="Ports up"
-        icon={<IconPlugConnected size={12} stroke={2} />}
+        icon={<EthernetPort size={12} />}
         value={health.ports.up}
         unit={`/ ${health.ports.total}`}
         foot={`${health.ports.down} down · ${health.ports.unknown} unknown`}
       />
       <Kpi
         label="Memory free"
-        icon={<IconCpu size={12} stroke={2} />}
+        icon={<Cpu size={12} />}
         value={formatBytes(health.memoryAvailableBytes)}
         foot={`of ${formatBytes(health.memoryTotalBytes)} total`}
       />
       <Kpi
         label="Disk free"
-        icon={<IconDatabase size={12} stroke={2} />}
-        value={disk ? formatBytes(disk.availableBytes) : '—'}
+        icon={<Database size={12} />}
+        value={disk ? formatBytes(disk.availableBytes) : <Dash />}
         foot={disk ? `${disk.mount} · ${formatBytes(disk.totalBytes)} total` : 'No filesystem reported'}
       />
     </div>
@@ -353,8 +341,8 @@ function SubsystemPanel({ health, loading }: { health: Health | undefined; loadi
       title="Subsystems"
       actions={
         health ? (
-          <span className="mono" style={{ fontSize: 11, color: 'var(--qz-fg-4)' }}>
-            <IconClock size={11} stroke={2} style={{ verticalAlign: -1, marginRight: 4 }} />
+          <span className="row gap-6 mono muted">
+            <Clock size={11} aria-hidden />
             {formatTimestamp(new Date().toISOString())}
           </span>
         ) : null
@@ -419,7 +407,7 @@ function SubsystemRow({ name, sub }: { name: string; sub: SubsystemHealth }) {
       <td>
         <Badge tone={sub.ok ? 'ok' : 'crit'}>{sub.ok ? 'ok' : 'down'}</Badge>
       </td>
-      <td className="dim">{sub.detail ?? '—'}</td>
+      <td className="dim">{sub.detail ?? <Dash />}</td>
     </tr>
   );
 }

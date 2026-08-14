@@ -13,14 +13,14 @@
  * none of the application shell.
  */
 
-import { IconDownload, IconPrinter } from '@tabler/icons-react';
+import { Download, Printer } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMemo, useRef } from 'react';
 
 import { AppShell } from '@/components/AppShell';
-import { Alert, PageHeader, Skeleton, Surface } from '@/components/ui';
+import { Alert, Page, PageBody, PageHeader, Skeleton, Surface } from '@/components/ui';
 import { api, queryKeys } from '@/lib/api';
 import { formatTimestamp } from '@/lib/format';
 
@@ -61,17 +61,22 @@ function Report() {
 
   if (runId === '') {
     return (
-      <div className="page stack gap-18">
+      <Page>
         <PageHeader title="Report" subtitle="No run selected" />
-        <Alert tone="danger">
-          <span>This URL does not name a run.</span>
-        </Alert>
-      </div>
+        <PageBody>
+          <Alert tone="danger">This URL does not name a run.</Alert>
+          <div>
+            <Link href="/runs/" className="btn btn-secondary btn-sm">
+              Back to runs
+            </Link>
+          </div>
+        </PageBody>
+      </Page>
     );
   }
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title={run.data ? `${run.data.testName} — report` : 'Report'}
         subtitle={
@@ -88,54 +93,52 @@ function Report() {
             <Link href={`/runs/${runId}/`} className="btn btn-secondary btn-sm">
               Back to run
             </Link>
-            <a className="btn btn-secondary btn-sm" href={url} download>
-              <IconDownload size={14} stroke={1.8} />
-              Download
-            </a>
-            <button type="button" className="btn btn-primary btn-sm" onClick={print}>
-              <IconPrinter size={14} stroke={1.8} />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={print}>
+              <Printer size={14} />
               Print
             </button>
+            <a className="btn btn-primary btn-sm" href={url} download>
+              <Download size={14} />
+              Download
+            </a>
           </>
         }
       />
 
-      {run.data && run.data.results.length === 0 ? (
-        <Alert tone="warn">
-          <span>
+      <PageBody>
+        {run.data && run.data.results.length === 0 ? (
+          <Alert tone="warn">
             This run recorded no results, so the report contains only its configuration and
             outcome.
-          </span>
-        </Alert>
-      ) : null}
+          </Alert>
+        ) : null}
 
-      <Surface padded={false}>
-        {run.isLoading ? (
-          <div style={{ padding: 18 }}>
+        <Surface padded={run.isLoading}>
+          {run.isLoading ? (
             <Skeleton height={520} />
-          </div>
-        ) : (
-          // The document renders on white; the surrounding surface stays dark,
-          // so what is on screen is what will come out of the printer.
-          <iframe
-            ref={frame}
-            src={url}
-            title="Run report"
-            className="report-frame"
-            // The report is same-origin and carries no script, but the sandbox
-            // is set anyway: this frame renders operator-supplied text, and a
-            // narrower capability set costs nothing here.
-            sandbox="allow-same-origin allow-modals"
-          />
-        )}
-      </Surface>
+          ) : (
+            // The document renders on white; the surrounding surface stays dark,
+            // so what is on screen is what will come out of the printer.
+            <iframe
+              ref={frame}
+              src={url}
+              title="Run report"
+              className="report-frame"
+              // The report is same-origin and carries no script, but the sandbox
+              // is set anyway: this frame renders operator-supplied text, and a
+              // narrower capability set costs nothing here.
+              sandbox="allow-same-origin allow-modals"
+            />
+          )}
+        </Surface>
 
-      <p className="dim" style={{ margin: 0, fontSize: 12.5 }}>
-        The report is a single self-contained HTML file with no scripts and no external
-        assets, so it stays readable after it is downloaded or archived. Printing it to PDF
-        produces the deliverable.
-      </p>
-    </div>
+        <p className="note">
+          The report is a single self-contained HTML file with no scripts and no external
+          assets, so it stays readable after it is downloaded or archived. Printing it to PDF
+          produces the deliverable.
+        </p>
+      </PageBody>
+    </Page>
   );
 }
 

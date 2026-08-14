@@ -10,12 +10,11 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { IconAlertTriangle, IconLock, IconUser } from '@tabler/icons-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { FluxLockup, TAGLINE } from '@/components/Brand';
-import { Alert } from '@/components/ui';
+import { FluxMark, TAGLINE } from '@/components/Brand';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
@@ -26,6 +25,7 @@ export default function LoginPage() {
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   // Someone who is already signed in has no business on this page.
   useEffect(() => {
@@ -52,28 +52,28 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-box">
-        <div className="login-brand">
-          <FluxLockup width={200} />
-          <p className="login-tagline">{TAGLINE}</p>
-        </div>
+        <div className="login-card">
+          <div className="login-brand">
+            <FluxMark size={36} />
+            <span
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: 'var(--qz-fg-1)',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              Flux
+            </span>
+          </div>
 
-        <section className="surface">
-          <form className="surface-body stack gap-14" onSubmit={onSubmit}>
-            {login.error ? (
-              <Alert tone="danger">
-                <IconAlertTriangle size={16} stroke={1.8} />
-                <span>{loginMessage(login.error)}</span>
-              </Alert>
-            ) : null}
-
+          <form className="stack gap-12" onSubmit={onSubmit}>
             <label className="field">
-              <span className="field-label">
-                <IconUser size={13} stroke={1.8} style={{ verticalAlign: -2, marginRight: 5 }} />
-                Username
-              </span>
+              <span className="field-label">Username</span>
               <input
                 className="input"
                 name="username"
+                placeholder="Enter your username"
                 autoComplete="username"
                 autoFocus
                 required
@@ -84,31 +84,47 @@ export default function LoginPage() {
             </label>
 
             <label className="field">
-              <span className="field-label">
-                <IconLock size={13} stroke={1.8} style={{ verticalAlign: -2, marginRight: 5 }} />
-                Password
-              </span>
-              <input
-                className="input"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={login.isPending}
-              />
+              <span className="field-label">Password</span>
+              <div className="relative">
+                <input
+                  className="input pr-10"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={login.isPending}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--qz-fg-4)] hover:text-[var(--qz-fg-2)] transition-colors cursor-pointer bg-transparent border-0 p-0"
+                >
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </label>
+
+            {login.error ? (
+              <p className="field-error m-0" role="alert">
+                {loginMessage(login.error)}
+              </p>
+            ) : null}
 
             <button
               type="submit"
-              className="btn btn-primary"
+              className="btn btn-primary w-full"
               disabled={login.isPending || !username || !password}
             >
               {login.isPending ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-        </section>
+
+          <p className="login-tagline">{TAGLINE}</p>
+        </div>
       </div>
     </div>
   );

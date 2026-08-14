@@ -14,12 +14,11 @@
  */
 
 import {
-  IconAlertTriangle,
-  IconLock,
-  IconLockOpen,
-  IconPencil,
-  IconRefresh,
-} from '@tabler/icons-react';
+  Lock,
+  LockOpen,
+  Pencil,
+  RefreshCw,
+} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
@@ -27,9 +26,12 @@ import { AppShell } from '@/components/AppShell';
 import {
   Alert,
   Badge,
+  Dash,
   EmptyRow,
   LinkBadge,
   ModeBadge,
+  Page,
+  PageBody,
   PageHeader,
   Surface,
   TableSkeleton,
@@ -102,7 +104,7 @@ function Ports() {
   const upCount = rows.filter((p) => p.linkState === 'up').length;
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Ports"
         subtitle={
@@ -121,88 +123,85 @@ function Ports() {
             disabled={!can('admin') || refresh.isPending}
             title={can('admin') ? 'Re-read the hardware inventory' : 'Requires an admin account'}
           >
-            <IconRefresh size={15} stroke={1.8} />
+            <RefreshCw size={15} />
             {refresh.isPending ? 'Refreshing…' : 'Refresh inventory'}
           </button>
         }
       />
 
-      {error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>{error}</span>
-        </Alert>
-      ) : null}
+      <PageBody>
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Surface padded={false}>
-        <div className="qz-table-wrap">
-          <table className="qz-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>PCI address</th>
-                <th>Description</th>
-                <th>MAC</th>
-                <th>Speed</th>
-                <th>NUMA</th>
-                <th>Link</th>
-                <th>Mode</th>
-                <th>Group</th>
-                <th>Reservation</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            {ports.isLoading ? (
-              <TableSkeleton columns={11} rows={4} />
-            ) : (
-              <tbody>
-                {rows.length === 0 ? (
-                  <EmptyRow columns={11}>
-                    No ports discovered yet.
-                    {can('admin')
-                      ? ' Use “Refresh inventory” to read the chassis.'
-                      : ' An administrator can refresh the inventory.'}
-                  </EmptyRow>
-                ) : (
-                  rows.map((port) => (
-                    <PortRow
-                      key={port.id}
-                      port={port}
-                      busy={busy}
-                      canBind={can('admin')}
-                      canReserve={can('operator')}
-                      isMine={port.reservation?.userId === user?.id}
-                      onRename={(name) => {
-                        setError(null);
-                        rename.mutate({ id: port.id, name });
-                      }}
-                      onSetMode={(mode) => {
-                        setError(null);
-                        setMode.mutate({ id: port.id, mode });
-                      }}
-                      onReserve={() => {
-                        setError(null);
-                        reserve.mutate(port.id);
-                      }}
-                      onRelease={() => {
-                        setError(null);
-                        release.mutate(port.id);
-                      }}
-                    />
-                  ))
-                )}
-              </tbody>
-            )}
-          </table>
-        </div>
-      </Surface>
+        <Surface padded={false}>
+          <div className="qz-table-wrap">
+            <table className="qz-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>PCI address</th>
+                  <th>Description</th>
+                  <th>MAC</th>
+                  <th>Speed</th>
+                  <th>NUMA</th>
+                  <th>Link</th>
+                  <th>Mode</th>
+                  <th>Group</th>
+                  <th>Reservation</th>
+                  <th className="right">Actions</th>
+                </tr>
+              </thead>
+              {ports.isLoading ? (
+                <TableSkeleton columns={11} rows={4} />
+              ) : (
+                <tbody>
+                  {rows.length === 0 ? (
+                    <EmptyRow columns={11}>
+                      No ports discovered yet.
+                      {can('admin')
+                        ? ' Use “Refresh inventory” to read the chassis.'
+                        : ' An administrator can refresh the inventory.'}
+                    </EmptyRow>
+                  ) : (
+                    rows.map((port) => (
+                      <PortRow
+                        key={port.id}
+                        port={port}
+                        busy={busy}
+                        canBind={can('admin')}
+                        canReserve={can('operator')}
+                        isMine={port.reservation?.userId === user?.id}
+                        onRename={(name) => {
+                          setError(null);
+                          rename.mutate({ id: port.id, name });
+                        }}
+                        onSetMode={(mode) => {
+                          setError(null);
+                          setMode.mutate({ id: port.id, mode });
+                        }}
+                        onReserve={() => {
+                          setError(null);
+                          reserve.mutate(port.id);
+                        }}
+                        onRelease={() => {
+                          setError(null);
+                          release.mutate(port.id);
+                        }}
+                      />
+                    ))
+                  )}
+                </tbody>
+              )}
+            </table>
+          </div>
+        </Surface>
 
-      <p className="dim" style={{ fontSize: 12.5, margin: 0 }}>
-        Binding a port to DPDK hands it to a userspace driver: the kernel loses its interface, and
-        link state stops being observable until an engine instance owns the port. A port belonging
-        to a running port group cannot be rebound — stop the group first.
-      </p>
-    </div>
+        <p className="note">
+          Binding a port to DPDK hands it to a userspace driver: the kernel loses its interface, and
+          link state stops being observable until an engine instance owns the port. A port belonging
+          to a running port group cannot be rebound — stop the group first.
+        </p>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -248,8 +247,8 @@ function PortRow({
       <td className="mono">
         {editing ? (
           <input
-            className="input"
-            style={{ width: 140, padding: '4px 8px', fontSize: 12.5 }}
+            className="input input-sm input-mono"
+            style={{ width: 140 }}
             value={draft}
             autoFocus
             onChange={(e) => setDraft(e.target.value)}
@@ -274,9 +273,9 @@ function PortRow({
       <td className="dim" style={{ maxWidth: 260 }}>
         {port.description}
       </td>
-      <td className="mono">{port.mac ?? '—'}</td>
+      <td className="mono">{port.mac ?? <Dash />}</td>
       <td className="mono">{formatSpeed(port.speedMbps)}</td>
-      <td className="mono">{port.numaNode ?? '—'}</td>
+      <td className="mono">{port.numaNode ?? <Dash />}</td>
 
       <td>
         <LinkBadge state={port.linkState} />
@@ -292,25 +291,23 @@ function PortRow({
             <span className="muted"> #{port.group.index}</span>
           </span>
         ) : (
-          <span className="muted">—</span>
+          <Dash />
         )}
       </td>
 
       <td>
         {port.reservation ? (
-          <span className="stack" style={{ gap: 2 }}>
+          <span className="stack">
             <span className="mono">{port.reservation.username}</span>
-            <span className="muted" style={{ fontSize: 11 }}>
-              expires {formatRelative(port.reservation.expiresAt)}
-            </span>
+            <span className="note">expires {formatRelative(port.reservation.expiresAt)}</span>
           </span>
         ) : (
-          <span className="muted">—</span>
+          <Dash />
         )}
       </td>
 
       <td>
-        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+        <div className="row gap-6 end">
           <button
             type="button"
             className="btn btn-ghost btn-sm btn-icon"
@@ -321,7 +318,7 @@ function PortRow({
               setEditing(true);
             }}
           >
-            <IconPencil size={14} stroke={1.8} />
+            <Pencil size={14} />
           </button>
 
           <button
@@ -354,7 +351,7 @@ function PortRow({
               }
               onClick={onRelease}
             >
-              <IconLockOpen size={14} stroke={1.8} />
+              <LockOpen size={14} />
               Release
             </button>
           ) : (
@@ -365,7 +362,7 @@ function PortRow({
               title={canReserve ? 'Reserve for 8 hours' : 'Reserving requires an operator account'}
               onClick={onReserve}
             >
-              <IconLock size={14} stroke={1.8} />
+              <Lock size={14} />
               Reserve
             </button>
           )}

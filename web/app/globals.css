@@ -147,143 +147,37 @@ a {
   color: var(--qz-fg-1);
 }
 
-/* Scrollbars styled to sit inside the dark shell rather than punching a
-   light-grey hole through it. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--qz-ink-6) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: var(--qz-ink-6);
-  border-radius: 999px;
-  border: 2px solid var(--qz-bg);
-}
+/* Scrollbars — the Quartz treatment, shared verbatim with Lumen and Quartz
+   Command: no track, and a thumb the colour of a border. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--qz-ink-5); border-radius: 999px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+:root { scrollbar-width: thin; scrollbar-color: var(--qz-ink-5) transparent; }
 
 /* ===========================================================================
    App shell
    =========================================================================== */
 
-.app-shell {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  grid-template-rows: 56px 1fr;
-  grid-template-areas:
-    "sidebar topbar"
-    "sidebar main";
-  min-height: 100vh;
-}
+/* The shell itself (sidebar, nav rows, footer) is styled in
+   `components/AppShell.tsx` with the same utility classes Lumen's Sidebar and
+   Quartz Command's CloudShell use, so the three consoles stay identical.
 
-.app-shell[data-collapsed="true"] {
-  grid-template-columns: 64px 1fr;
-}
-
-.app-sidebar {
-  grid-area: sidebar;
-  background: var(--qz-ink-0);
-  border-right: 1px solid var(--qz-border);
+   The page chassis is Lumen's `Page`/`PageHeader`/`PageBody`: the title block
+   is pinned to the top of the pane and the body scrolls under it, full-width,
+   so the heading and its controls stay put however long the table below
+   gets. */
+.page {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  height: 100%;
 }
 
-.app-topbar {
-  grid-area: topbar;
-  background: var(--qz-ink-0);
-  border-bottom: 1px solid var(--qz-border);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 20px;
-}
-
-.app-main {
-  grid-area: main;
-  background: var(--qz-bg);
-  overflow-y: auto;
-}
-
-.page {
-  padding: 28px 36px;
-  max-width: 1320px;
-  margin: 0 auto;
-}
-
-/* ---------- Sidebar ---------- */
-
-.sidebar-header {
-  height: 56px;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--qz-border);
-  flex-shrink: 0;
-}
-
-.sidebar-nav {
+.page-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 14px 10px 20px;
-}
-
-.sidebar-section {
-  font-family: var(--qz-font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--qz-fg-4);
-  padding: 14px 10px 6px;
-}
-
-.sidebar-section:first-child {
-  padding-top: 2px;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  font-size: 13.5px;
-  font-weight: 500;
-  color: var(--qz-fg-3);
-  border: 1px solid transparent;
-  transition: background var(--qz-dur-1) var(--qz-ease-out),
-              color var(--qz-dur-1) var(--qz-ease-out);
-}
-
-.nav-item:hover {
-  background: color-mix(in oklab, #ffffff 4%, transparent);
-  color: var(--qz-fg-1);
-}
-
-.nav-item[aria-current="page"] {
-  background: var(--qz-accent-soft);
-  border-color: color-mix(in oklab, var(--qz-green-500) 30%, transparent);
-  color: var(--qz-accent);
-}
-
-.nav-item svg {
-  flex-shrink: 0;
-}
-
-.sidebar-footer {
-  border-top: 1px solid var(--qz-border);
-  padding: 12px 14px;
-  font-family: var(--qz-font-mono);
-  font-size: 10.5px;
-  color: var(--qz-fg-4);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  padding: 0 36px 28px;
 }
 
 /* ===========================================================================
@@ -295,7 +189,8 @@ a {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 24px;
+  padding: 28px 36px 20px;
+  flex-shrink: 0;
 }
 
 .page-header h1 {
@@ -308,9 +203,8 @@ a {
 
 .page-header .subtitle {
   margin: 4px 0 0;
-  font-family: var(--qz-font-mono);
   font-size: 13px;
-  color: var(--qz-fg-3);
+  color: var(--qz-fg-4);
 }
 
 .page-header .actions {
@@ -437,7 +331,7 @@ a {
 
 .qz-table td {
   font-size: 13px;
-  padding: 9px 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--qz-divider);
   color: var(--qz-fg-2);
   vertical-align: middle;
@@ -470,9 +364,13 @@ a {
 }
 
 .qz-table td.num {
-  text-align: right;
   font-family: var(--qz-font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+.qz-table td.num,
+.qz-table th.num {
+  text-align: right;
 }
 
 .qz-table .empty {
@@ -489,15 +387,15 @@ a {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-family: var(--qz-font-mono);
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   border-radius: 999px;
   padding: 3px 8px;
   border: 1px solid transparent;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -576,22 +474,21 @@ a {
 .btn-secondary {
   background: var(--qz-surface-raised);
   border-color: var(--qz-border);
-  color: var(--qz-fg-2);
+  color: var(--qz-fg-1);
   box-shadow: var(--qz-inset-line);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  border-color: var(--qz-border-strong);
-  color: var(--qz-fg-1);
+  background: color-mix(in oklab, #ffffff 4%, var(--qz-surface-raised));
 }
 
 .btn-ghost {
   background: transparent;
-  color: var(--qz-fg-3);
+  color: var(--qz-fg-2);
 }
 
 .btn-ghost:hover:not(:disabled) {
-  background: color-mix(in oklab, #ffffff 5%, transparent);
+  background: var(--qz-surface);
   color: var(--qz-fg-1);
 }
 
@@ -613,6 +510,60 @@ a {
   padding: 7px;
 }
 
+/* ---------- Switch ----------
+   The Quartz toggle, shared verbatim with Lumen / Quartz Command; the class
+   form of `components/ui/Switch`. */
+
+.switch {
+  width: 34px;
+  height: 20px;
+  background: var(--qz-ink-5);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms;
+  flex-shrink: 0;
+}
+
+.switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 160ms var(--qz-ease-out);
+}
+
+.switch.on { background: var(--qz-accent); }
+.switch.on .switch-knob { left: 16px; background: var(--qz-fg-on-accent); }
+
+/* ---------- Toast ----------
+   Transient bottom-right notice, shared verbatim with Lumen / Quartz Command;
+   rendered by `components/ui/Toast`. */
+
+.toast {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 80;
+  background: var(--qz-surface-raised);
+  border: 1px solid var(--qz-border);
+  border-left: 3px solid var(--qz-accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  color: var(--qz-fg-1);
+  animation: toast-in 220ms var(--qz-ease-out);
+}
+
+@keyframes toast-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
 /* ===========================================================================
    Forms
    =========================================================================== */
@@ -629,16 +580,21 @@ a {
   color: var(--qz-fg-3);
 }
 
+/* The class form of `components/ui/formkit`, kept in step with it metric for
+   metric — the same padding, the same 13px, the same border that turns accent
+   on focus — so a field written in markup and a field written through the kit
+   are the same control. */
 .input,
 .select {
   width: 100%;
   background: var(--qz-input-bg);
   border: 1px solid var(--qz-border);
   border-radius: 6px;
-  padding: 8px 11px;
+  padding: 9px 12px;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--qz-fg-1);
+  outline: none;
   transition: border-color var(--qz-dur-1) var(--qz-ease-out);
 }
 
@@ -646,9 +602,9 @@ a {
   color: var(--qz-fg-4);
 }
 
-.input:hover:not(:disabled),
-.select:hover:not(:disabled) {
-  border-color: var(--qz-border-strong);
+.input:focus,
+.select:focus {
+  border-color: var(--qz-accent);
 }
 
 .input:disabled,
@@ -664,6 +620,25 @@ a {
 .field-error {
   font-size: 12px;
   color: var(--qz-danger);
+}
+
+/* The line under a control that explains it — one size everywhere, matching
+   formkit's hint. */
+.field-hint {
+  font-size: 11px;
+  color: var(--qz-fg-4);
+}
+
+/* Monospace variant of a control, for anything an operator reads off a
+   network diagram: addresses, MACs, counts. */
+.input-mono,
+.select.input-mono {
+  font-family: var(--qz-font-mono);
+}
+
+/* Checkboxes tick in the accent rather than the browser's blue. */
+input[type='checkbox'] {
+  accent-color: var(--qz-accent);
 }
 
 .select {
@@ -751,41 +726,43 @@ a {
    Login
    =========================================================================== */
 
+/* The sign-in screen, in the shape both reference consoles use: a flat page,
+   and a card darker than it — `--qz-ink-0`, 12px radius, lifted with
+   `--qz-shadow-3` — with the brand inside the card and a quiet caption under
+   the form. */
 .login-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 24px;
-  /* A faint accent bloom behind the card, so the login screen reads as the same
-     product as the dark shell behind it rather than a blank page. */
-  background:
-    radial-gradient(
-      ellipse 60% 50% at 50% 0%,
-      color-mix(in oklab, var(--qz-green-500) 7%, transparent),
-      transparent 70%
-    ),
-    var(--qz-ink-1);
+  background: var(--qz-bg);
 }
 
 .login-box {
   width: 100%;
-  max-width: 380px;
+  max-width: 360px;
+}
+
+.login-card {
+  background: var(--qz-ink-0);
+  border: 1px solid var(--qz-border);
+  border-radius: 12px;
+  box-shadow: var(--qz-shadow-3);
+  padding: 32px;
 }
 
 .login-brand {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 26px;
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
 .login-tagline {
-  font-family: var(--qz-font-mono);
-  font-size: 12px;
-  color: var(--qz-fg-3);
+  font-size: 11px;
+  color: var(--qz-fg-4);
   text-align: center;
-  margin: 0;
+  margin: 14px 0 0;
 }
 
 /* ===========================================================================
@@ -911,11 +888,12 @@ a {
   text-align: left;
 }
 
+/* Round, like every other series/state dot in the system. */
 .live-chart .u-legend .u-marker {
   display: inline-block;
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: 999px;
   margin-right: 5px;
   vertical-align: middle;
 }
@@ -1044,26 +1022,6 @@ a {
 }
 
 /* ===========================================================================
-   Wizard
-   =========================================================================== */
-
-.wizard-intro {
-  display: flex;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 8px;
-  background: var(--qz-info-soft);
-  border: 1px solid color-mix(in oklab, var(--qz-info) 30%, transparent);
-  color: var(--qz-fg-2);
-  font-size: 13px;
-}
-
-.wizard-intro strong {
-  color: var(--qz-fg-1);
-  font-size: 13.5px;
-}
-
-/* ===========================================================================
    Report
    =========================================================================== */
 
@@ -1088,10 +1046,105 @@ a {
 .gap-6   { gap: 6px; }
 .gap-8   { gap: 8px; }
 .gap-10  { gap: 10px; }
+.gap-12  { gap: 12px; }
 .gap-14  { gap: 14px; }
 .gap-18  { gap: 18px; }
+.end     { justify-content: flex-end; }
+.between { justify-content: space-between; }
 .muted   { color: var(--qz-fg-4); }
 .dim     { color: var(--qz-fg-3); }
+
+/* Right-aligned cell that is not numeric — an actions column. */
+.qz-table th.right,
+.qz-table td.right {
+  text-align: right;
+}
+
+/* An inline accent link inside body copy or a table cell. */
+.link {
+  color: var(--qz-accent);
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* A quiet explanatory footnote under a table or panel. */
+.note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--qz-fg-4);
+}
+
+/* Explanatory body copy inside a panel or dialog — the reference consoles'
+   13px `--qz-fg-3` paragraph. */
+.prose {
+  margin: 0;
+  font-size: 13px;
+  color: var(--qz-fg-3);
+}
+
+/* Definition list: the shape every detail panel uses. Shared verbatim with
+   Lumen. */
+.qz-facts {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 10px 20px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.qz-facts dt {
+  font-size: 12px;
+  color: var(--qz-fg-4);
+}
+
+.qz-facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--qz-fg-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The centred "nothing here" body of a panel with no rows — one geometry for
+   every empty panel, matching the reference dashboard's. */
+.empty-state {
+  padding: 32px 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--qz-fg-4);
+}
+
+.empty-state-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+  color: var(--qz-fg-4);
+}
+
+/* A block of configuration or output shown as code. `.hex-dump` stays for
+   packet hex; this is the general-purpose sibling. */
+.code-block {
+  margin: 0;
+  padding: 14px 18px;
+  font-family: var(--qz-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--qz-fg-2);
+  background: var(--qz-surface-sunken);
+  border-radius: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+/* Compact control for table toolbars and dense rows. */
+.input-sm,
+.select.input-sm {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,

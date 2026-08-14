@@ -5,19 +5,19 @@
  *
  * Admin-only. The whole page is behind the role check rather than individual
  * controls, because nothing on it is meaningful to read without the ability to
- * act on it.
+ * act on it. Each concern is a tab; Configuration transfer and About share the
+ * System tab because both describe the appliance as a whole.
  */
 
 import {
-  IconAlertTriangle,
-  IconDownload,
-  IconLock,
-  IconPlayerPlay,
-  IconPlayerStop,
-  IconPlus,
-  IconTrash,
-  IconUpload,
-} from '@tabler/icons-react';
+  Download,
+  Lock,
+  Play,
+  Square,
+  Plus,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
@@ -26,13 +26,25 @@ import { FluxLockup, TAGLINE } from '@/components/Brand';
 import {
   Alert,
   Badge,
+  Dash,
   EmptyRow,
   GroupStateBadge,
+  Page,
+  PageBody,
   PageHeader,
   RoleBadge,
   Surface,
   TableSkeleton,
 } from '@/components/ui';
+import { ModalHeader, ModalShell } from '@/components/ui/Modal';
+import { Tabs } from '@/components/ui/Tabs';
+import {
+  ErrorText,
+  Field,
+  ModalFooter,
+  SelectInput,
+  TextInput,
+} from '@/components/ui/formkit';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import {
   applianceSettingSchema,
@@ -56,29 +68,47 @@ export default function SettingsPage() {
 
 function Settings() {
   const { can } = useAuth();
+  const [tab, setTab] = useState('users');
 
   if (!can('admin')) {
     return (
-      <div className="page stack gap-18">
+      <Page>
         <PageHeader title="Settings" subtitle="Appliance administration" />
-        <Alert tone="warn">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>Settings are available to administrators only.</span>
-        </Alert>
-      </div>
+        <PageBody>
+          <Alert tone="warn">Settings are available to administrators only.</Alert>
+        </PageBody>
+      </Page>
     );
   }
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader title="Settings" subtitle="Users, appliance, and configuration" />
-      <UsersPanel />
-      <PortGroupsPanel />
-      <TlsPanel />
-      <AppliancePanel />
-      <TransferPanel />
-      <AboutPanel />
-    </div>
+      <PageBody>
+        <Tabs
+          items={[
+            { value: 'users', label: 'Users' },
+            { value: 'groups', label: 'Port groups' },
+            { value: 'tls', label: 'TLS' },
+            { value: 'appliance', label: 'Appliance' },
+            { value: 'system', label: 'System' },
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+
+        {tab === 'users' ? <UsersPanel /> : null}
+        {tab === 'groups' ? <PortGroupsPanel /> : null}
+        {tab === 'tls' ? <TlsPanel /> : null}
+        {tab === 'appliance' ? <AppliancePanel /> : null}
+        {tab === 'system' ? (
+          <>
+            <TransferPanel />
+            <AboutPanel />
+          </>
+        ) : null}
+      </PageBody>
+    </Page>
   );
 }
 
@@ -91,6 +121,7 @@ function UsersPanel() {
   const { user: me } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<User | null>(null);
 
   const users = useQuery({
     queryKey: queryKeys.users,
@@ -109,89 +140,99 @@ function UsersPanel() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.users.remove(id),
-    onSuccess: invalidate,
-    onError: (e) => setError(describe(e)),
+    onSuccess: () => {
+      setDeleting(null);
+      invalidate();
+    },
+    onError: (e) => {
+      setDeleting(null);
+      setError(describe(e));
+    },
   });
 
   const rows = users.data ?? [];
 
   return (
-    <Surface
-      title="Users"
-      actions={
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => {
-            setError(null);
-            setCreating((v) => !v);
-          }}
-        >
-          <IconPlus size={14} stroke={2} />
-          {creating ? 'Cancel' : 'Add user'}
-        </button>
-      }
-      padded={false}
-    >
-      {error ? (
-        <div style={{ padding: '14px 18px 0' }}>
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
+    <>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
+
+      <Surface
+        title="Users"
+        actions={
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setError(null);
+              setCreating(true);
+            }}
+          >
+            <Plus size={14} />
+            Add user
+          </button>
+        }
+        padded={false}
+      >
+        <div className="qz-table-wrap">
+          <table className="qz-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Created</th>
+                <th>Last sign-in</th>
+                <th className="right">Actions</th>
+              </tr>
+            </thead>
+            {users.isLoading ? (
+              <TableSkeleton columns={5} rows={3} />
+            ) : (
+              <tbody>
+                {rows.length === 0 ? (
+                  <EmptyRow columns={5}>No accounts exist.</EmptyRow>
+                ) : (
+                  rows.map((user) => (
+                    <UserRow
+                      key={user.id}
+                      user={user}
+                      isSelf={user.id === me?.id}
+                      busy={setRole.isPending || remove.isPending}
+                      onRole={(role) => {
+                        setError(null);
+                        setRole.mutate({ id: user.id, role });
+                      }}
+                      onDelete={() => {
+                        setError(null);
+                        setDeleting(user);
+                      }}
+                    />
+                  ))
+                )}
+              </tbody>
+            )}
+          </table>
         </div>
-      ) : null}
+      </Surface>
 
       {creating ? (
-        <CreateUserForm
-          onDone={() => {
+        <CreateUserDialog
+          onClose={() => setCreating(false)}
+          onCreated={() => {
             setCreating(false);
             invalidate();
           }}
-          onError={setError}
         />
       ) : null}
 
-      <div className="qz-table-wrap">
-        <table className="qz-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Created</th>
-              <th>Last sign-in</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          {users.isLoading ? (
-            <TableSkeleton columns={5} rows={3} />
-          ) : (
-            <tbody>
-              {rows.length === 0 ? (
-                <EmptyRow columns={5}>No accounts exist.</EmptyRow>
-              ) : (
-                rows.map((user) => (
-                  <UserRow
-                    key={user.id}
-                    user={user}
-                    isSelf={user.id === me?.id}
-                    busy={setRole.isPending || remove.isPending}
-                    onRole={(role) => {
-                      setError(null);
-                      setRole.mutate({ id: user.id, role });
-                    }}
-                    onRemove={() => {
-                      setError(null);
-                      remove.mutate(user.id);
-                    }}
-                  />
-                ))
-              )}
-            </tbody>
-          )}
-        </table>
-      </div>
-    </Surface>
+      {deleting ? (
+        <DeleteUserDialog
+          user={deleting}
+          busy={remove.isPending}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -201,16 +242,14 @@ function UserRow({
   isSelf,
   busy,
   onRole,
-  onRemove,
+  onDelete,
 }: {
   user: User;
   isSelf: boolean;
   busy: boolean;
   onRole: (role: Role) => void;
-  onRemove: () => void;
+  onDelete: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
-
   return (
     <tr>
       <td className="mono">
@@ -222,8 +261,7 @@ function UserRow({
         <div className="row gap-8">
           <RoleBadge role={user.role} />
           <select
-            className="select"
-            style={{ width: 118, padding: '3px 8px', fontSize: 12 }}
+            className="select input-sm"
             value={user.role}
             disabled={busy}
             onChange={(e) => onRole(e.target.value as Role)}
@@ -240,75 +278,48 @@ function UserRow({
       <td className="dim">{user.lastLoginAt ? formatTimestamp(user.lastLoginAt) : 'never'}</td>
 
       <td>
-        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
-          {confirming ? (
-            <>
-              <span className="muted" style={{ fontSize: 12 }}>
-                Delete {user.username}?
-              </span>
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={busy}
-                onClick={() => {
-                  setConfirming(false);
-                  onRemove();
-                }}
-              >
-                Confirm
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setConfirming(false)}
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm btn-icon"
-              title={`Delete ${user.username}`}
-              disabled={busy}
-              onClick={() => setConfirming(true)}
-            >
-              <IconTrash size={14} stroke={1.8} />
-            </button>
-          )}
+        <div className="row gap-6 end">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm btn-icon"
+            title={`Delete ${user.username}`}
+            disabled={busy}
+            onClick={onDelete}
+          >
+            <Trash2 size={14} />
+          </button>
         </div>
       </td>
     </tr>
   );
 }
 
-/** Inline form for adding an account. */
-function CreateUserForm({
-  onDone,
-  onError,
+/** Dialog for adding an account. */
+function CreateUserDialog({
+  onClose,
+  onCreated,
 }: {
-  onDone: () => void;
-  onError: (message: string) => void;
+  onClose: () => void;
+  onCreated: () => void;
 }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('operator');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [general, setGeneral] = useState('');
 
   const create = useMutation({
     mutationFn: () => api.users.create({ username, password, role }),
-    onSuccess: () => {
-      setUsername('');
-      setPassword('');
-      setFieldErrors({});
-      onDone();
-    },
+    onSuccess: onCreated,
     onError: (e) => {
-      // Field-level failures go next to their input; anything else is a banner.
+      // Field-level failures go next to their input; anything else is a line
+      // above the footer.
       if (e instanceof ApiError && e.fieldErrors.length > 0) {
+        setGeneral('');
         setFieldErrors(Object.fromEntries(e.fieldErrors.map((f) => [f.path, f.msg])));
       } else {
-        onError(describe(e));
+        setFieldErrors({});
+        setGeneral(describe(e));
       }
     },
   });
@@ -319,68 +330,94 @@ function CreateUserForm({
   };
 
   return (
-    <form
-      onSubmit={submit}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr 150px auto',
-        gap: 12,
-        alignItems: 'start',
-        padding: '16px 18px',
-        borderBottom: '1px solid var(--qz-divider)',
-      }}
-    >
-      <label className="field">
-        <span className="field-label">Username</span>
-        <input
-          className="input"
-          value={username}
-          required
-          autoFocus
-          aria-invalid={Boolean(fieldErrors.username)}
-          onChange={(e) => setUsername(e.target.value)}
-        />
-        {fieldErrors.username ? <span className="field-error">{fieldErrors.username}</span> : null}
-      </label>
+    <ModalShell onClose={onClose}>
+      <ModalHeader
+        title="Add user"
+        subtitle="A local account on this appliance."
+        onClose={onClose}
+      />
+      <form onSubmit={submit} className="stack gap-14">
+        <Field label="Username" htmlFor="new-user-name" required error={fieldErrors.username}>
+          <TextInput
+            id="new-user-name"
+            value={username}
+            onChange={setUsername}
+            mono
+            autoFocus
+            invalid={Boolean(fieldErrors.username)}
+          />
+        </Field>
 
-      <label className="field">
-        <span className="field-label">Password</span>
-        <input
-          className="input"
-          type="password"
-          value={password}
+        <Field
+          label="Password"
+          htmlFor="new-user-password"
           required
-          autoComplete="new-password"
-          aria-invalid={Boolean(fieldErrors.password)}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <span className={fieldErrors.password ? 'field-error' : 'muted'} style={{ fontSize: 12 }}>
-          {fieldErrors.password ?? 'At least 12 characters.'}
-        </span>
-      </label>
-
-      <label className="field">
-        <span className="field-label">Role</span>
-        <select
-          className="select"
-          value={role}
-          onChange={(e) => setRole(e.target.value as Role)}
+          error={fieldErrors.password}
+          hint="At least 12 characters."
         >
-          <option value="viewer">viewer</option>
-          <option value="operator">operator</option>
-          <option value="admin">admin</option>
-        </select>
-      </label>
+          <TextInput
+            id="new-user-password"
+            type="password"
+            value={password}
+            onChange={setPassword}
+            invalid={Boolean(fieldErrors.password)}
+          />
+        </Field>
 
-      <button
-        type="submit"
-        className="btn btn-primary"
-        style={{ marginTop: 22 }}
-        disabled={create.isPending || !username || !password}
-      >
-        {create.isPending ? 'Creating…' : 'Create'}
-      </button>
-    </form>
+        <Field label="Role" htmlFor="new-user-role">
+          <SelectInput id="new-user-role" value={role} onChange={(v) => setRole(v as Role)}>
+            <option value="viewer">viewer</option>
+            <option value="operator">operator</option>
+            <option value="admin">admin</option>
+          </SelectInput>
+        </Field>
+
+        <ErrorText msg={general} />
+        <ModalFooter
+          onCancel={onClose}
+          saving={create.isPending}
+          disabled={!username || !password}
+          savingLabel="Creating…"
+          submitLabel="Create user"
+        />
+      </form>
+    </ModalShell>
+  );
+}
+
+/** Confirms removal of an account before anything is sent. */
+function DeleteUserDialog({
+  user,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  user: User;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell onClose={onClose} maxWidth={440}>
+      <ModalHeader
+        title={`Delete ${user.username}?`}
+        subtitle="Local account on this appliance."
+        onClose={onClose}
+      />
+      <div className="stack gap-14">
+        <p className="prose">
+          The account is removed and can no longer sign in. This cannot be undone.
+        </p>
+        <div className="row gap-8 end">
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={onConfirm}>
+            {busy ? 'Deleting…' : 'Delete user'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -428,59 +465,54 @@ function PortGroupsPanel() {
   const busy = start.isPending || stop.isPending;
 
   return (
-    <Surface title="Port groups" padded={false}>
-      {error ? (
-        <div style={{ padding: '14px 18px 0' }}>
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
-        </div>
-      ) : null}
+    <>
+      {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <div className="qz-table-wrap">
-        <table className="qz-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Mode</th>
-              <th>State</th>
-              <th className="num">Ports</th>
-              <th>Detail</th>
-              <th style={{ textAlign: 'right' }}>Engine</th>
-            </tr>
-          </thead>
-          {groups.isLoading ? (
-            <TableSkeleton columns={6} rows={2} />
-          ) : (
-            <tbody>
-              {rows.length === 0 ? (
-                <EmptyRow columns={6}>
-                  No port groups. Create one from the ports page to give an engine something to
-                  drive.
-                </EmptyRow>
-              ) : (
-                rows.map((group) => (
-                  <PortGroupRow
-                    key={group.id}
-                    group={group}
-                    busy={busy}
-                    onStart={() => {
-                      setError(null);
-                      start.mutate(group.id);
-                    }}
-                    onStop={() => {
-                      setError(null);
-                      stop.mutate(group.id);
-                    }}
-                  />
-                ))
-              )}
-            </tbody>
-          )}
-        </table>
-      </div>
-    </Surface>
+      <Surface title="Port groups" padded={false}>
+        <div className="qz-table-wrap">
+          <table className="qz-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Mode</th>
+                <th>State</th>
+                <th className="num">Ports</th>
+                <th>Detail</th>
+                <th className="right">Engine</th>
+              </tr>
+            </thead>
+            {groups.isLoading ? (
+              <TableSkeleton columns={6} rows={2} />
+            ) : (
+              <tbody>
+                {rows.length === 0 ? (
+                  <EmptyRow columns={6}>
+                    No port groups. Create one from the ports page to give an engine something to
+                    drive.
+                  </EmptyRow>
+                ) : (
+                  rows.map((group) => (
+                    <PortGroupRow
+                      key={group.id}
+                      group={group}
+                      busy={busy}
+                      onStart={() => {
+                        setError(null);
+                        start.mutate(group.id);
+                      }}
+                      onStop={() => {
+                        setError(null);
+                        stop.mutate(group.id);
+                      }}
+                    />
+                  ))
+                )}
+              </tbody>
+            )}
+          </table>
+        </div>
+      </Surface>
+    </>
   );
 }
 
@@ -509,11 +541,11 @@ function PortGroupRow({
         <GroupStateBadge state={group.state} />
       </td>
       <td className="num">{group.portIds.length}</td>
-      <td className="dim" style={{ maxWidth: 320, fontSize: 12 }}>
-        {group.error ?? '—'}
+      <td className="dim" style={{ maxWidth: 320 }}>
+        {group.error ?? <Dash />}
       </td>
       <td>
-        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+        <div className="row gap-6 end">
           {up ? (
             <button
               type="button"
@@ -521,7 +553,7 @@ function PortGroupRow({
               disabled={busy}
               onClick={onStop}
             >
-              <IconPlayerStop size={13} stroke={2} />
+              <Square size={13} />
               Stop
             </button>
           ) : (
@@ -532,7 +564,7 @@ function PortGroupRow({
               title={empty ? 'This group has no member ports' : 'Bring the engine up'}
               onClick={onStart}
             >
-              <IconPlayerPlay size={13} stroke={2} />
+              <Play size={13} />
               Start
             </button>
           )}
@@ -616,23 +648,13 @@ function TlsPanel() {
       }
     >
       <div className="stack gap-14">
-        {error ? (
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
-        ) : null}
-        {notice ? (
-          <Alert tone="warn">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{notice}</span>
-          </Alert>
-        ) : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+        {notice ? <Alert tone="warn">{notice}</Alert> : null}
 
         {tls?.enabled ? (
           <div className="row gap-10">
-            <IconLock size={16} stroke={1.8} style={{ color: 'var(--qz-accent)' }} />
-            <span style={{ fontSize: 13 }}>
+            <Lock size={16} style={{ color: 'var(--qz-accent)' }} />
+            <span className="prose">
               A certificate is installed
               {tls.subject ? (
                 <>
@@ -644,7 +666,7 @@ function TlsPanel() {
             </span>
           </div>
         ) : (
-          <p className="dim" style={{ margin: 0, fontSize: 13 }}>
+          <p className="prose">
             This appliance is serving plain HTTP. The session cookie it issues is a bearer
             credential, so install a certificate before putting it on a shared network.
           </p>
@@ -653,10 +675,10 @@ function TlsPanel() {
         <label className="field">
           <span className="field-label">Certificate chain (PEM, leaf first)</span>
           <textarea
-            className="input"
+            className="input input-mono"
             rows={5}
             spellCheck={false}
-            style={{ fontFamily: 'var(--qz-font-mono)', fontSize: 11.5, resize: 'vertical' }}
+            style={{ resize: 'vertical' }}
             placeholder="-----BEGIN CERTIFICATE-----"
             value={certificate}
             onChange={(e) => setCertificate(e.target.value)}
@@ -666,15 +688,15 @@ function TlsPanel() {
         <label className="field">
           <span className="field-label">Private key (PEM)</span>
           <textarea
-            className="input"
+            className="input input-mono"
             rows={5}
             spellCheck={false}
-            style={{ fontFamily: 'var(--qz-font-mono)', fontSize: 11.5, resize: 'vertical' }}
+            style={{ resize: 'vertical' }}
             placeholder="-----BEGIN PRIVATE KEY-----"
             value={privateKey}
             onChange={(e) => setPrivateKey(e.target.value)}
           />
-          <span className="muted" style={{ fontSize: 12 }}>
+          <span className="field-hint">
             Written owner-readable only and never returned by the API.
           </span>
         </label>
@@ -690,7 +712,7 @@ function TlsPanel() {
               upload.mutate();
             }}
           >
-            <IconUpload size={14} stroke={1.8} />
+            <Upload size={14} />
             {upload.isPending ? 'Installing…' : 'Install certificate'}
           </button>
         </div>
@@ -777,12 +799,7 @@ function AppliancePanel() {
   return (
     <Surface title="Appliance">
       <div className="stack gap-14">
-        {error ? (
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
-        ) : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
         <div className="field-grid">
           <label className="field">
@@ -813,7 +830,7 @@ function AppliancePanel() {
               value={form.contact}
               onChange={(e) => field('contact', e.target.value)}
             />
-            <span className="muted" style={{ fontSize: 12 }}>
+            <span className="field-hint">
               Printed on reports, so a result can be traced back to the rack that produced it.
             </span>
           </label>
@@ -823,10 +840,9 @@ function AppliancePanel() {
           <label className="field">
             <span className="field-label">Keep runs for (days)</span>
             <input
-              className="input"
+              className="input input-mono"
               type="number"
               min={1}
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
               value={form.runDays}
               onChange={(e) => field('runDays', Number(e.target.value))}
             />
@@ -835,14 +851,13 @@ function AppliancePanel() {
           <label className="field">
             <span className="field-label">Keep time series for (days)</span>
             <input
-              className="input"
+              className="input input-mono"
               type="number"
               min={1}
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
               value={form.seriesDays}
               onChange={(e) => field('seriesDays', Number(e.target.value))}
             />
-            <span className="muted" style={{ fontSize: 12 }}>
+            <span className="field-hint">
               Series outlive nothing: a run whose samples have aged out still shows its summary.
             </span>
           </label>
@@ -857,11 +872,7 @@ function AppliancePanel() {
           >
             {save.isPending ? 'Saving…' : 'Save'}
           </button>
-          {saved ? (
-            <span className="muted" style={{ fontSize: 12.5 }}>
-              Saved.
-            </span>
-          ) : null}
+          {saved ? <p className="note">Saved.</p> : null}
         </div>
       </div>
     </Surface>
@@ -904,18 +915,13 @@ function TransferPanel() {
   return (
     <Surface title="Configuration">
       <div className="stack gap-14">
-        <p className="dim" style={{ margin: 0, fontSize: 13 }}>
+        <p className="prose">
           Flows, load profiles, tests, and settings travel as one JSON bundle, cross-referenced
           by name. Accounts, sessions, run history, and TLS material are deliberately left out —
           none of them are safe or meaningful to copy between appliances.
         </p>
 
-        {error ? (
-          <Alert tone="danger">
-            <IconAlertTriangle size={16} stroke={1.8} />
-            <span>{error}</span>
-          </Alert>
-        ) : null}
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
         {summary ? (
           <Alert tone={summary.problems.length > 0 ? 'warn' : 'info'}>
@@ -925,14 +931,16 @@ function TransferPanel() {
                 {summary.testsCreated} tests.
               </strong>
               {skipped > 0 ? (
-                <p style={{ margin: '2px 0 0', fontSize: 12.5 }}>
+                <p className="note" style={{ marginTop: 2 }}>
                   {skipped} skipped because that name already exists — import never overwrites.
                 </p>
               ) : null}
               {summary.problems.length > 0 ? (
-                <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: 12.5 }}>
+                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
                   {summary.problems.map((problem) => (
-                    <li key={problem}>{problem}</li>
+                    <li key={problem} className="note">
+                      {problem}
+                    </li>
                   ))}
                 </ul>
               ) : null}
@@ -946,7 +954,7 @@ function TransferPanel() {
             href={api.settings.exportUrl()}
             download="flux-config.json"
           >
-            <IconDownload size={14} stroke={1.8} />
+            <Download size={14} />
             Export
           </a>
 
@@ -968,7 +976,7 @@ function TransferPanel() {
             disabled={load.isPending}
             onClick={() => picker.current?.click()}
           >
-            <IconUpload size={14} stroke={1.8} />
+            <Upload size={14} />
             {load.isPending ? 'Importing…' : 'Import'}
           </button>
         </div>
@@ -992,39 +1000,21 @@ function AboutPanel() {
       <div className="stack gap-18">
         <div className="stack gap-10">
           <FluxLockup width={160} />
-          <p className="login-tagline" style={{ textAlign: 'left' }}>
-            {TAGLINE}
-          </p>
+          <p className="note">{TAGLINE}</p>
         </div>
 
-        <dl
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'auto 1fr',
-            gap: '8px 20px',
-            margin: 0,
-            fontSize: 13,
-          }}
-        >
-          <dt className="muted">Daemon version</dt>
-          <dd className="mono" style={{ margin: 0 }}>
-            {health.data?.version ?? '—'}
-          </dd>
+        <dl className="qz-facts">
+          <dt>Daemon version</dt>
+          <dd className="mono">{health.data?.version ?? <Dash />}</dd>
 
-          <dt className="muted">Uptime</dt>
-          <dd className="mono" style={{ margin: 0 }}>
-            {health.data ? formatDuration(health.data.uptimeSecs) : '—'}
-          </dd>
+          <dt>Uptime</dt>
+          <dd className="mono">{health.data ? formatDuration(health.data.uptimeSecs) : <Dash />}</dd>
 
-          <dt className="muted">Packet engine</dt>
-          <dd className="mono" style={{ margin: 0 }}>
-            {health.data?.engine.backend ?? '—'}
-          </dd>
+          <dt>Packet engine</dt>
+          <dd className="mono">{health.data?.engine.backend ?? <Dash />}</dd>
 
-          <dt className="muted">Port controller</dt>
-          <dd className="mono" style={{ margin: 0 }}>
-            {health.data?.portd.backend ?? '—'}
-          </dd>
+          <dt>Port controller</dt>
+          <dd className="mono">{health.data?.portd.backend ?? <Dash />}</dd>
         </dl>
       </div>
     </Surface>

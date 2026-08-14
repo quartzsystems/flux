@@ -10,15 +10,16 @@
  * on an appliance.
  */
 
-import { IconAlertTriangle, IconChartLine, IconRefresh } from '@tabler/icons-react';
+import { ChartLine, RefreshCw } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import uPlot from 'uplot';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
-import { Alert, EmptyRow, PageHeader, Skeleton, Surface } from '@/components/ui';
+import { Alert, Dash, Empty, Page, PageBody, PageHeader, Skeleton, Surface } from '@/components/ui';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import type { AnalyticsResult } from '@/lib/api-types';
+import { CHART_HEIGHT, SERIES_COLOURS, baseOptions } from '@/lib/chart-theme';
 import { formatBitrate, formatCount, formatPps, formatTimestamp } from '@/lib/format';
 
 /** Selectable ranges, as seconds back from now. */
@@ -30,9 +31,6 @@ const RANGES: { label: string; seconds: number }[] = [
   { label: 'Last 7 days', seconds: 7 * 86_400 },
   { label: 'Last 30 days', seconds: 30 * 86_400 },
 ];
-
-/** The series palette, matching the live charts. */
-const SERIES_COLOURS = ['#00d992', '#4fb3ff', '#f5b243', '#ff5d6c', '#b39dff', '#5ad1c8'];
 
 export default function AnalyticsPage() {
   return (
@@ -94,7 +92,7 @@ function Analytics() {
   const isPortMetric = metric.startsWith('flux_port_');
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Analytics"
         subtitle="Recorded time series"
@@ -105,151 +103,142 @@ function Analytics() {
             disabled={result.isFetching}
             onClick={() => setNow(Math.floor(Date.now() / 1000))}
           >
-            <IconRefresh size={15} stroke={1.8} />
+            <RefreshCw size={15} />
             Refresh
           </button>
         }
       />
-
-      <Surface title="Query">
-        <div className="field-grid">
-          <label className="field">
-            <span className="field-label">Metric</span>
-            <select
-              className="select"
-              value={metric}
-              onChange={(e) => {
-                setMetric(e.target.value);
-                // Labels do not carry across metric families: a port filter
-                // means nothing to a flow series.
-                setPort('');
-                setStream('');
-              }}
-            >
-              {(metrics.data ?? []).map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Range</span>
-            <select
-              className="select"
-              value={rangeSecs}
-              onChange={(e) => {
-                setRangeSecs(Number(e.target.value));
-                setNow(Math.floor(Date.now() / 1000));
-              }}
-            >
-              {RANGES.map((range) => (
-                <option key={range.seconds} value={range.seconds}>
-                  {range.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {isPortMetric ? (
+      <PageBody>
+        <Surface title="Query">
+          <div className="field-grid">
             <label className="field">
-              <span className="field-label">Port</span>
-              <select className="select" value={port} onChange={(e) => setPort(e.target.value)}>
-                <option value="">All ports</option>
-                {(ports.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label className="field">
-              <span className="field-label">Flow</span>
+              <span className="field-label">Metric</span>
               <select
                 className="select"
-                value={stream}
-                onChange={(e) => setStream(e.target.value)}
+                value={metric}
+                onChange={(e) => {
+                  setMetric(e.target.value);
+                  // Labels do not carry across metric families: a port filter
+                  // means nothing to a flow series.
+                  setPort('');
+                  setStream('');
+                }}
               >
-                <option value="">All flows</option>
-                {(flows.data ?? []).map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
+                {(metrics.data ?? []).map((m) => (
+                  <option key={m.name} value={m.name}>
+                    {m.label}
                   </option>
                 ))}
               </select>
             </label>
-          )}
 
-          <label className="field">
-            <span className="field-label">Run</span>
-            <select className="select" value={runId} onChange={(e) => setRunId(e.target.value)}>
-              <option value="">Any run</option>
-              {(runs.data?.runs ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.testName} — {formatTimestamp(r.startedAt)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </Surface>
+            <label className="field">
+              <span className="field-label">Range</span>
+              <select
+                className="select"
+                value={rangeSecs}
+                onChange={(e) => {
+                  setRangeSecs(Number(e.target.value));
+                  setNow(Math.floor(Date.now() / 1000));
+                }}
+              >
+                {RANGES.map((range) => (
+                  <option key={range.seconds} value={range.seconds}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-      {result.error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>
+            {isPortMetric ? (
+              <label className="field">
+                <span className="field-label">Port</span>
+                <select className="select" value={port} onChange={(e) => setPort(e.target.value)}>
+                  <option value="">All ports</option>
+                  {(ports.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <label className="field">
+                <span className="field-label">Flow</span>
+                <select
+                  className="select"
+                  value={stream}
+                  onChange={(e) => setStream(e.target.value)}
+                >
+                  <option value="">All flows</option>
+                  {(flows.data ?? []).map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <label className="field">
+              <span className="field-label">Run</span>
+              <select className="select" value={runId} onChange={(e) => setRunId(e.target.value)}>
+                <option value="">Any run</option>
+                {(runs.data?.runs ?? []).map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.testName} — {formatTimestamp(r.startedAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </Surface>
+
+        {result.error ? (
+          <Alert tone="danger">
             {result.error instanceof ApiError
               ? result.error.message
               : 'The query could not be run.'}
-          </span>
-        </Alert>
-      ) : null}
+          </Alert>
+        ) : null}
 
-      <Surface
-        title={info?.label ?? 'Series'}
-        actions={
-          result.data ? (
-            <span className="mono muted" style={{ fontSize: 11.5 }}>
-              {result.data.series.length} series · {result.data.step}s step
-            </span>
-          ) : null
-        }
-      >
-        {result.isLoading ? (
-          <Skeleton height={280} />
-        ) : result.data && result.data.series.length > 0 ? (
-          <HistoryChart result={result.data} />
-        ) : (
-          <div className="stack gap-8" style={{ alignItems: 'center', padding: '48px 0' }}>
-            <IconChartLine size={28} stroke={1.4} style={{ color: 'var(--qz-fg-4)' }} />
-            <p className="dim" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
+        <Surface
+          title={info?.label ?? 'Series'}
+          actions={
+            result.data ? (
+              <span className="note mono">
+                {result.data.series.length} series · {result.data.step}s step
+              </span>
+            ) : null
+          }
+        >
+          {result.isLoading ? (
+            <Skeleton height={CHART_HEIGHT} />
+          ) : result.data && result.data.series.length > 0 ? (
+            <HistoryChart result={result.data} />
+          ) : (
+            <Empty icon={<ChartLine size={28} />}>
               Nothing recorded for this query.
               <br />
               Series are written while a run is in flight, so start a test and come back.
-            </p>
-          </div>
-        )}
-      </Surface>
+            </Empty>
+          )}
+        </Surface>
 
-      {result.data && result.data.series.length > 0 ? (
-        <Surface title="Series" padded={false}>
-          <div className="qz-table-wrap">
-            <table className="qz-table">
-              <thead>
-                <tr>
-                  <th>Labels</th>
-                  <th className="num">Points</th>
-                  <th className="num">Latest</th>
-                  <th className="num">Peak</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.data.series.length === 0 ? (
-                  <EmptyRow columns={4}>No series.</EmptyRow>
-                ) : (
-                  result.data.series.map((series, i) => {
+        {result.data && result.data.series.length > 0 ? (
+          <Surface title="Series" padded={false}>
+            <div className="qz-table-wrap">
+              <table className="qz-table">
+                <thead>
+                  <tr>
+                    <th>Labels</th>
+                    <th className="num">Points</th>
+                    <th className="num">Latest</th>
+                    <th className="num">Peak</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.data.series.map((series, i) => {
                     const present = series.values.filter((v): v is number => v !== null);
                     const latest = present.at(-1);
                     const peak = present.length > 0 ? Math.max(...present) : undefined;
@@ -259,21 +248,21 @@ function Analytics() {
                         <td className="mono">{describeLabels(series.labels)}</td>
                         <td className="num">{formatCount(present.length)}</td>
                         <td className="num">
-                          {latest === undefined ? '—' : formatValue(latest, result.data.unit)}
+                          {latest === undefined ? <Dash /> : formatValue(latest, result.data.unit)}
                         </td>
                         <td className="num">
-                          {peak === undefined ? '—' : formatValue(peak, result.data.unit)}
+                          {peak === undefined ? <Dash /> : formatValue(peak, result.data.unit)}
                         </td>
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Surface>
-      ) : null}
-    </div>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Surface>
+        ) : null}
+      </PageBody>
+    </Page>
   );
 }
 
@@ -306,29 +295,15 @@ function HistoryChart({ result }: { result: AnalyticsResult }) {
 
     const chart = new uPlot(
       {
-        width: element.clientWidth || 600,
-        height: 280,
-        legend: { show: true, live: true },
-        cursor: { drag: { x: true, y: false, setScale: true } },
-        scales: { x: { time: true } },
-        axes: [
-          {
-            stroke: '#6b6f7a',
-            grid: { stroke: '#1c1f28', width: 1 },
-            ticks: { stroke: '#252830' },
-            font: '11px "JetBrains Mono", ui-monospace, monospace',
-          },
-          {
-            stroke: '#6b6f7a',
-            grid: { stroke: '#1c1f28', width: 1 },
-            ticks: { stroke: '#252830' },
-            font: '11px "JetBrains Mono", ui-monospace, monospace',
-            label: result.unit,
-            labelSize: 30,
-            size: 70,
-            values: (_self, splits) => splits.map((v) => formatValue(v, result.unit)),
-          },
-        ],
+        ...baseOptions({
+          width: element.clientWidth || 600,
+          unit: result.unit,
+          format: (v) => formatValue(v, result.unit),
+          // On for historical charts: zooming into a recorded range is the
+          // point of them, and there is no incoming sample to snap the scale
+          // back (see BaseOptionsArgs).
+          setScale: true,
+        }),
         series: [
           { label: 'time' },
           ...result.series.map((series, i) => ({
@@ -349,7 +324,7 @@ function HistoryChart({ result }: { result: AnalyticsResult }) {
 
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
-      if (width) chart.setSize({ width, height: 280 });
+      if (width) chart.setSize({ width, height: CHART_HEIGHT });
     });
     observer.observe(element);
 

@@ -5,8 +5,13 @@
  * styled components. The design system is CSS; this file exists so a page never
  * has to remember that a KPI label is `mono 10px uppercase` — it asks for a
  * `<Kpi>` and gets the canonical one.
+ *
+ * The dialog/form primitives (`Button`, `ModalShell`, `formkit`, `Tabs`,
+ * `Switch`, `Toast`) live beside this file, ported verbatim from Lumen and
+ * Quartz Command so the three consoles stay one product.
  */
 
+import { CircleAlert, Info, TriangleAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { LinkState, PortGroupState, PortMode, Role } from '@/lib/api-types';
@@ -15,7 +20,21 @@ import type { LinkState, PortGroupState, PortMode, Role } from '@/lib/api-types'
 // Layout
 // ---------------------------------------------------------------------------
 
-/** Page title, subtitle, and right-aligned actions. */
+/**
+ * Console page chrome, in the shape Lumen's console uses: a title block pinned
+ * to the top of the pane and a body that scrolls under it, so the heading and
+ * its controls stay put however long the table below gets.
+ *
+ *     <Page>
+ *       <PageHeader title="Ports" subtitle="…" actions={…} />
+ *       <PageBody>…</PageBody>
+ *     </Page>
+ */
+export function Page({ children }: { children: ReactNode }) {
+  return <div className="page">{children}</div>;
+}
+
+/** Page title, subtitle, and right-aligned actions. Pinned; does not scroll. */
 export function PageHeader({
   title,
   subtitle,
@@ -33,6 +52,15 @@ export function PageHeader({
       </div>
       {actions ? <div className="actions">{actions}</div> : null}
     </header>
+  );
+}
+
+/** Everything below the header. Scrolls on its own. */
+export function PageBody({ children }: { children: ReactNode }) {
+  return (
+    <div className="page-body">
+      <div className="stack gap-18">{children}</div>
+    </div>
   );
 }
 
@@ -91,6 +119,18 @@ export function Kpi({
   );
 }
 
+/** The KPI card's own metrics, drawn as placeholders while data loads. */
+export function KpiSkeleton() {
+  return (
+    <div className="kpi">
+      <Skeleton height={10} width={90} />
+      <div style={{ marginTop: 8 }}>
+        <Skeleton height={35} width={120} />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Badges
 // ---------------------------------------------------------------------------
@@ -142,7 +182,10 @@ export function RoleBadge({ role }: { role: Role }) {
 // Feedback
 // ---------------------------------------------------------------------------
 
-/** An inline message. */
+/**
+ * An inline message. The icon comes with the tone — call sites cannot forget
+ * it, and every alert in the app carries the same one.
+ */
 export function Alert({
   tone = 'info',
   children,
@@ -150,9 +193,26 @@ export function Alert({
   tone?: 'info' | 'warn' | 'danger';
   children: ReactNode;
 }) {
+  const Icon = tone === 'info' ? Info : tone === 'warn' ? TriangleAlert : CircleAlert;
   return (
     <div className={`alert alert-${tone}`} role={tone === 'danger' ? 'alert' : 'status'}>
-      {children}
+      <Icon size={16} />
+      <div>{children}</div>
+    </div>
+  );
+}
+
+/** The muted em-dash every "no value" cell renders. One dash, one colour. */
+export function Dash() {
+  return <span className="muted">—</span>;
+}
+
+/** A centred "nothing here" body for a panel that has no rows to show. */
+export function Empty({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="empty-state">
+      {icon ? <div className="empty-state-icon">{icon}</div> : null}
+      <div>{children}</div>
     </div>
   );
 }

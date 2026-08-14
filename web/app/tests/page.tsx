@@ -9,18 +9,28 @@
  */
 
 import {
-  IconAlertTriangle,
-  IconChevronDown,
-  IconPlayerPlay,
-  IconTrash,
-} from '@tabler/icons-react';
+  ChevronDown,
+  Play,
+  Trash2,
+} from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
-import { BENCHMARKS, Rfc2544Wizard } from '@/components/Rfc2544Wizard';
-import { Alert, Badge, EmptyRow, PageHeader, Surface, TableSkeleton } from '@/components/ui';
+import { BENCHMARKS, FlowPicker, Rfc2544Wizard } from '@/components/Rfc2544Wizard';
+import {
+  Alert,
+  Badge,
+  EmptyRow,
+  Page,
+  PageBody,
+  PageHeader,
+  Surface,
+  TableSkeleton,
+} from '@/components/ui';
+import { ModalHeader, ModalShell } from '@/components/ui/Modal';
+import { Field, SelectInput, TextInput } from '@/components/ui/formkit';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import type { Flow, LoadProfile, Test, TestType } from '@/lib/api-types';
 import { useAuth } from '@/lib/auth';
@@ -58,6 +68,7 @@ function Tests() {
   const { can } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<TestType | null>(null);
+  const [deleting, setDeleting] = useState<Test | null>(null);
 
   const tests = useQuery({
     queryKey: queryKeys.tests,
@@ -86,8 +97,15 @@ function Tests() {
 
   const remove = useMutation({
     mutationFn: (id: string) => api.tests.remove(id),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.tests }),
-    onError: (e) => setError(describe(e)),
+    onSuccess: () => {
+      setDeleting(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
+    },
+    onError: (e) => {
+      // Close the dialog so the page-level alert is visible.
+      setDeleting(null);
+      setError(describe(e));
+    },
   });
 
   const rows = tests.data ?? [];
@@ -97,7 +115,7 @@ function Tests() {
   const drivable = (flows.data ?? []).length + (profiles.data ?? []).length;
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Tests"
         subtitle={tests.data ? `${rows.length} defined` : 'Test definitions'}
@@ -132,84 +150,130 @@ function Tests() {
         }
       />
 
-      {error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>{error}</span>
-        </Alert>
-      ) : null}
+      <PageBody>
+        {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      {creating === 'manual' ? (
-        <CreateTest
-          flows={flows.data ?? []}
-          profiles={profiles.data ?? []}
-          onDone={() => {
-            setCreating(null);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
-          }}
-          onError={setError}
+        {creating === 'manual' ? (
+          <CreateTest
+            flows={flows.data ?? []}
+            profiles={profiles.data ?? []}
+            onDone={() => {
+              setCreating(null);
+              void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
+            }}
+            onError={setError}
+          />
+        ) : null}
+
+        {creating && creating !== 'manual' ? (
+          <CreateBenchmark
+            type={creating}
+            flows={flows.data ?? []}
+            onDone={() => {
+              setCreating(null);
+              void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
+            }}
+            onError={setError}
+          />
+        ) : null}
+
+        <Surface padded={false}>
+          <div className="qz-table-wrap">
+            <table className="qz-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Drives</th>
+                  <th>Created</th>
+                  <th className="right">Actions</th>
+                </tr>
+              </thead>
+              {tests.isLoading ? (
+                <TableSkeleton columns={5} rows={3} />
+              ) : (
+                <tbody>
+                  {rows.length === 0 ? (
+                    <EmptyRow columns={5}>
+                      No tests yet. A test names what to drive — flows or a load profile — and
+                      how to drive it.
+                    </EmptyRow>
+                  ) : (
+                    rows.map((test) => (
+                      <TestRow
+                        key={test.id}
+                        test={test}
+                        flows={flows.data ?? []}
+                        profiles={profiles.data ?? []}
+                        canRun={can('operator')}
+                        busy={start.isPending || remove.isPending}
+                        onRun={() => {
+                          setError(null);
+                          start.mutate(test.id);
+                        }}
+                        onRemove={() => {
+                          setError(null);
+                          setDeleting(test);
+                        }}
+                      />
+                    ))
+                  )}
+                </tbody>
+              )}
+            </table>
+          </div>
+        </Surface>
+      </PageBody>
+
+      {deleting ? (
+        <DeleteTestDialog
+          test={deleting}
+          busy={remove.isPending}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => remove.mutate(deleting.id)}
         />
       ) : null}
+    </Page>
+  );
+}
 
-      {creating && creating !== 'manual' ? (
-        <CreateBenchmark
-          type={creating}
-          flows={flows.data ?? []}
-          onDone={() => {
-            setCreating(null);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.tests });
-          }}
-          onError={setError}
-        />
-      ) : null}
-
-      <Surface padded={false}>
-        <div className="qz-table-wrap">
-          <table className="qz-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Drives</th>
-                <th>Created</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            {tests.isLoading ? (
-              <TableSkeleton columns={5} rows={3} />
-            ) : (
-              <tbody>
-                {rows.length === 0 ? (
-                  <EmptyRow columns={5}>
-                    No tests yet. A test names what to drive — flows or a load profile — and
-                    how to drive it.
-                  </EmptyRow>
-                ) : (
-                  rows.map((test) => (
-                    <TestRow
-                      key={test.id}
-                      test={test}
-                      flows={flows.data ?? []}
-                      profiles={profiles.data ?? []}
-                      canRun={can('operator')}
-                      busy={start.isPending || remove.isPending}
-                      onRun={() => {
-                        setError(null);
-                        start.mutate(test.id);
-                      }}
-                      onRemove={() => {
-                        setError(null);
-                        remove.mutate(test.id);
-                      }}
-                    />
-                  ))
-                )}
-              </tbody>
-            )}
-          </table>
+/**
+ * Confirms a delete before it fires. The definition is the only thing at
+ * stake, but a slipped click on a row of icon buttons should still cost a
+ * second click, not a test.
+ */
+function DeleteTestDialog({
+  test,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  test: Test;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell onClose={onClose} maxWidth={440}>
+      <ModalHeader
+        title={`Delete ${test.name}?`}
+        subtitle={TYPE_LABELS[test.type]}
+        onClose={onClose}
+      />
+      <div className="stack gap-14">
+        <p className="m-0 text-[13px] text-[var(--qz-fg-3)]">
+          The test definition is deleted. This cannot be undone.
+        </p>
+        <div className="row gap-8 end">
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={onConfirm}>
+            {busy ? 'Deleting…' : 'Delete test'}
+          </button>
         </div>
-      </Surface>
-    </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -245,7 +309,7 @@ function TestRow({
     <tr>
       <td className="mono">{test.name}</td>
       <td>
-        <Badge tone={runnable ? 'info' : 'muted'}>{TYPE_LABELS[test.type]}</Badge>
+        <Badge tone={runnable ? 'ok' : 'muted'}>{TYPE_LABELS[test.type]}</Badge>
       </td>
       <td className="dim" style={{ maxWidth: 320 }}>
         <span className="row gap-8">
@@ -253,11 +317,9 @@ function TestRow({
           <span>{names}</span>
         </span>
       </td>
-      <td className="dim" style={{ fontSize: 12 }}>
-        {formatTimestamp(test.createdAt)}
-      </td>
+      <td className="dim">{formatTimestamp(test.createdAt)}</td>
       <td>
-        <div className="row gap-6" style={{ justifyContent: 'flex-end' }}>
+        <div className="row gap-6 end">
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -271,7 +333,7 @@ function TestRow({
             }
             onClick={onRun}
           >
-            <IconPlayerPlay size={13} stroke={2} />
+            <Play size={13} />
             Run
           </button>
           <button
@@ -281,7 +343,7 @@ function TestRow({
             disabled={!canRun || busy}
             onClick={onRemove}
           >
-            <IconTrash size={14} stroke={1.8} />
+            <Trash2 size={14} />
           </button>
         </div>
       </td>
@@ -353,25 +415,23 @@ function CreateTest({
     <Surface title="New test">
       <div className="stack gap-14">
         <div className="field-grid">
-          <label className="field">
-            <span className="field-label">Name</span>
-            <input
-              className="input"
+          <Field label="Name" error={fieldErrors.name}>
+            <TextInput
               value={name}
               autoFocus
-              aria-invalid={Boolean(fieldErrors.name)}
-              onChange={(e) => setName(e.target.value)}
+              invalid={Boolean(fieldErrors.name)}
+              onChange={setName}
             />
-            {fieldErrors.name ? <span className="field-error">{fieldErrors.name}</span> : null}
-          </label>
+          </Field>
 
-          <label className="field">
-            <span className="field-label">Drives</span>
-            <select
-              className="select"
+          <Field
+            label="Drives"
+            hint={stateful ? 'Runs on an ASTF port group.' : 'Runs on a stateless port group.'}
+          >
+            <SelectInput
               value={drives}
-              onChange={(e) => {
-                setDrives(e.target.value as 'flows' | 'profiles');
+              onChange={(v) => {
+                setDrives(v as 'flows' | 'profiles');
                 // Different lists entirely; a selection cannot carry across.
                 setSelected([]);
               }}
@@ -382,52 +442,17 @@ function CreateTest({
               <option value="profiles" disabled={profiles.length === 0}>
                 Load profile — stateful connections
               </option>
-            </select>
-            <span className="muted" style={{ fontSize: 11.5 }}>
-              {stateful ? 'Runs on an ASTF port group.' : 'Runs on a stateless port group.'}
-            </span>
-          </label>
+            </SelectInput>
+          </Field>
         </div>
 
-        <div className="field">
-          <span className="field-label">
-            {stateful ? 'Load profiles' : 'Flows'}{' '}
-            {selected.length > 0 ? `(${selected.length} selected, in order)` : ''}
-          </span>
-          {fieldErrors.flowIds ? (
-            <span className="field-error">{fieldErrors.flowIds}</span>
-          ) : null}
-          {fieldErrors.profileIds ? (
-            <span className="field-error">{fieldErrors.profileIds}</span>
-          ) : null}
-
-          <div className="stack gap-6" style={{ marginTop: 4 }}>
-            {options.length === 0 ? (
-              <span className="muted" style={{ fontSize: 12.5 }}>
-                None defined yet.
-              </span>
-            ) : (
-              options.map((option) => {
-                const position = selected.indexOf(option.id);
-                return (
-                  <label
-                    key={option.id}
-                    className="row gap-8"
-                    style={{ fontSize: 13, cursor: 'pointer' }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={position >= 0}
-                      onChange={() => toggle(option.id)}
-                    />
-                    <span className="mono">{option.name}</span>
-                    {position >= 0 ? <Badge tone="ok">#{position}</Badge> : null}
-                  </label>
-                );
-              })
-            )}
-          </div>
-        </div>
+        <FlowPicker
+          label={stateful ? 'Load profiles' : 'Flows'}
+          options={options}
+          selected={selected}
+          onToggle={toggle}
+          error={fieldErrors.flowIds ?? fieldErrors.profileIds}
+        />
 
         <div>
           <button
@@ -477,7 +502,7 @@ function TypePicker({
         onClick={() => setOpen((v) => !v)}
       >
         New test
-        <IconChevronDown size={14} stroke={2} />
+        <ChevronDown size={14} />
       </button>
 
       {open && !disabled ? (

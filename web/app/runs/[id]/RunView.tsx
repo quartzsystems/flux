@@ -12,7 +12,7 @@
  * when something about the run actually changed.
  */
 
-import { IconAlertTriangle, IconFileText, IconPlayerStop } from '@tabler/icons-react';
+import { FileText, Square } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -23,8 +23,11 @@ import { LiveChart, type ChartSeries } from '@/components/LiveChart';
 import {
   Alert,
   Badge,
+  Dash,
   EmptyRow,
   Kpi,
+  Page,
+  PageBody,
   PageHeader,
   Skeleton,
   Surface,
@@ -36,10 +39,11 @@ import {
   manualMetricsSchema,
   type RunDetail,
   type RunResult,
+  type RunState,
   type StatsBatch,
 } from '@/lib/api-types';
 import { useAuth } from '@/lib/auth';
-import { useStatsStream } from '@/lib/stream';
+import { useStatsStream, type StreamStatus } from '@/lib/stream';
 import {
   formatBitrate,
   formatCount,
@@ -103,102 +107,136 @@ function RunViewInner() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: queryKeys.run(runId) }),
   });
 
-  if (run.isLoading) {
-    return (
-      <div className="page stack gap-18">
-        <Skeleton height={36} width={320} />
-        <Skeleton height={120} />
-        <Skeleton height={220} />
-      </div>
-    );
-  }
-
-  if (run.error || !run.data) {
-    return (
-      <div className="page stack gap-18">
-        <PageHeader title="Run" subtitle="Not found" />
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>
-            {run.error instanceof ApiError ? run.error.message : 'This run could not be loaded.'}
-          </span>
-        </Alert>
-        <div>
-          <Link href="/runs/" className="btn btn-secondary btn-sm">
-            Back to runs
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   const detail = run.data;
+
+  // The header is hoisted above the loading/error branch so the title block
+  // never jumps in late; only the body below it changes shape.
+  return (
+    <Page>
+      <PageHeader
+        title={detail?.testName ?? 'Run'}
+        subtitle={
+          detail ? (
+            <>
+              {detail.type} · started {formatTimestamp(detail.startedAt)}
+            </>
+          ) : run.isLoading ? (
+            'Loading…'
+          ) : (
+            'Not found'
+          )
+        }
+        actions={
+          detail ? (
+            <>
+              {live ? <StreamIndicator status={stream.status} /> : null}
+              {detail.stoppable && can('operator') ? (
+                <button
+                  type="button"
+                  className="btn btn-danger btn-sm"
+                  disabled={stop.isPending}
+                  onClick={() => stop.mutate()}
+                >
+                  <Square size={14} />
+                  {stop.isPending ? 'Stopping…' : 'Stop run'}
+                </button>
+              ) : null}
+              <Link href={`/runs/${runId}/report/`} className="btn btn-secondary btn-sm">
+                <FileText size={14} />
+                Report
+              </Link>
+              <Link href="/runs/" className="btn btn-secondary btn-sm">
+                All runs
+              </Link>
+            </>
+          ) : null
+        }
+      />
+
+      <PageBody>
+        {run.isLoading ? (
+          <>
+            <Skeleton height={120} />
+            <Skeleton height={220} />
+          </>
+        ) : run.error || !detail ? (
+          <>
+            <Alert tone="danger">
+              {run.error instanceof ApiError ? run.error.message : 'This run could not be loaded.'}
+            </Alert>
+            <div>
+              <Link href="/runs/" className="btn btn-secondary btn-sm">
+                Back to runs
+              </Link>
+            </div>
+          </>
+        ) : (
+          <RunBody detail={detail} stream={stream} live={live} />
+        )}
+      </PageBody>
+    </Page>
+  );
+}
+
+/**
+ * The stream's connection state: a coloured dot plus a sentence-case label.
+ *
+ * The dot pulses only while data is actually flowing — a pulsing "Connecting…"
+ * would claim liveness the stream does not have.
+ */
+function StreamIndicator({ status }: { status: StreamStatus }) {
+  const { colour, label, pulse } =
+    status === 'open'
+      ? { colour: 'var(--qz-success)', label: 'Live', pulse: true }
+      : status === 'connecting'
+        ? { colour: 'var(--qz-warn)', label: 'Connecting…', pulse: false }
+        : { colour: 'var(--qz-ink-7)', label: 'Disconnected', pulse: false };
+
+  return (
+    <span className="row gap-6 note mono">
+      <span className={pulse ? 'pulse' : 'link-dot'} style={{ background: colour }} aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+/** Everything below the header once the run record has loaded. */
+function RunBody({
+  detail,
+  stream,
+  live,
+}: {
+  detail: RunDetail;
+  stream: ReturnType<typeof useStatsStream>;
+  live: boolean;
+}) {
   const duration = detail.finishedAt
     ? (new Date(detail.finishedAt).getTime() - new Date(detail.startedAt).getTime()) / 1000
     : (Date.now() - new Date(detail.startedAt).getTime()) / 1000;
 
   // Progress from the stream is fresher than the polled record, so it wins when
-  // both are available.
-  const state = stream.progress?.state ?? detail.state;
+  // both are available. The stream reports states from the same lifecycle the
+  // record does; the cast makes that contract explicit to the tone map.
+  const state = (stream.progress?.state as RunState | undefined) ?? detail.state;
 
   return (
-    <div className="page stack gap-18">
-      <PageHeader
-        title={detail.testName}
-        subtitle={
-          <>
-            {detail.type} · started {formatTimestamp(detail.startedAt)}
-          </>
-        }
-        actions={
-          <>
-            {live ? (
-              <span className="row gap-6 mono" style={{ fontSize: 12, color: 'var(--qz-fg-3)' }}>
-                <span className="pulse" aria-hidden />
-                {stream.status === 'open' ? 'live' : stream.status}
-              </span>
-            ) : null}
-            {detail.stoppable && can('operator') ? (
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                disabled={stop.isPending}
-                onClick={() => stop.mutate()}
-              >
-                <IconPlayerStop size={14} stroke={2} />
-                {stop.isPending ? 'Stopping…' : 'Stop run'}
-              </button>
-            ) : null}
-            <Link href={`/runs/${runId}/report/`} className="btn btn-secondary btn-sm">
-              <IconFileText size={14} stroke={1.8} />
-              Report
-            </Link>
-            <Link href="/runs/" className="btn btn-secondary btn-sm">
-              All runs
-            </Link>
-          </>
-        }
-      />
+    <>
+      {detail.error ? <Alert tone="danger">{detail.error}</Alert> : null}
 
-      {detail.error ? (
-        <Alert tone="danger">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>{detail.error}</span>
-        </Alert>
-      ) : null}
-
-      {stream.detail ? (
-        <Alert tone="warn">
-          <IconAlertTriangle size={16} stroke={1.8} />
-          <span>{stream.detail}</span>
-        </Alert>
-      ) : null}
+      {stream.detail ? <Alert tone="warn">{stream.detail}</Alert> : null}
 
       <div className="kpi-grid">
+        {/* The badge lives in the foot: the 32px tabular-nums slot is for
+            numbers, and a run's state is not one. */}
         <Kpi
           label="State"
-          value={<Badge tone={runStateTone(detail.state)}>{state}</Badge>}
-          foot={stream.progress?.message ?? detail.type}
+          value={<Dash />}
+          foot={
+            <span className="row gap-6">
+              <Badge tone={runStateTone(state)}>{state}</Badge>
+              {stream.progress?.message ?? detail.type}
+            </span>
+          }
         />
         <Kpi label="Duration" value={formatDuration(duration)} foot={live ? 'running' : 'final'} />
         <Kpi
@@ -208,7 +246,7 @@ function RunViewInner() {
         />
         <Kpi
           label="Frame size"
-          value={stream.progress?.frameSize ?? '—'}
+          value={stream.progress?.frameSize ?? <Dash />}
           unit={stream.progress?.frameSize ? 'B' : undefined}
           foot={
             stream.progress?.trialRatePct !== undefined
@@ -227,12 +265,10 @@ function RunViewInner() {
                 style={{ width: `${Math.round(stream.progress.progress * 100)}%` }}
               />
             </div>
-            <div className="row" style={{ justifyContent: 'space-between' }}>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {Math.round(stream.progress.progress * 100)}%
-              </span>
+            <div className="row between">
+              <span className="note mono">{Math.round(stream.progress.progress * 100)}%</span>
               {stream.progress.trialRemainingSecs !== undefined ? (
-                <span className="mono muted" style={{ fontSize: 12 }}>
+                <span className="note mono">
                   {formatDuration(stream.progress.trialRemainingSecs)} left in this trial
                 </span>
               ) : null}
@@ -246,7 +282,7 @@ function RunViewInner() {
       <ResultsTable results={detail.results} />
 
       <SnapshotPanel detail={detail} />
-    </div>
+    </>
   );
 }
 
@@ -274,32 +310,83 @@ function useHasConnections(stream: ReturnType<typeof useStatsStream>): boolean {
   return seen;
 }
 
+/**
+ * One chart card: a titled surface around a stream-fed chart.
+ *
+ * Both chart grids build from this, so every panel carries the same head, the
+ * same padding, and a series list declared the same way.
+ */
+function ChartPanel({
+  stream,
+  title,
+  series,
+  unit,
+  format,
+}: {
+  stream: ReturnType<typeof useStatsStream>;
+  title: string;
+  series: ChartSeries[];
+  unit: string;
+  format: (value: number) => string;
+}) {
+  return (
+    <Surface title={title}>
+      <LiveChart stream={stream} series={series} unit={unit} format={format} />
+    </Surface>
+  );
+}
+
+// Series are derived from the batch each second rather than from a fixed list
+// of ids, because a run's flows are known only once data starts arriving. They
+// are module constants so a re-render never hands the chart a new identity.
+
+const RATE_SERIES: ChartSeries[] = [
+  { label: 'tx', value: (b) => sumStreams(b, (s) => s.txPps) },
+  { label: 'rx', value: (b) => sumStreams(b, (s) => s.rxPps) },
+];
+
+const LOSS_SERIES: ChartSeries[] = [
+  { label: 'loss', value: (b) => sumStreams(b, (s) => s.lossPps) },
+];
+
+const THROUGHPUT_SERIES: ChartSeries[] = [
+  { label: 'tx', value: (b) => sumPorts(b, (p) => p.txBps) },
+  { label: 'rx', value: (b) => sumPorts(b, (p) => p.rxBps) },
+];
+
+const LATENCY_SERIES: ChartSeries[] = [
+  { label: 'p50', value: (b) => firstLatency(b, 'p50Us') },
+  { label: 'p99', value: (b) => firstLatency(b, 'p99Us') },
+  { label: 'max', value: (b) => firstLatency(b, 'maxUs') },
+];
+
+/** Reads one connection-level field, or a gap while none are reported. */
+const conn =
+  (pick: (c: NonNullable<StatsBatch['connections']>) => number) =>
+  (batch: StatsBatch) =>
+    batch.connections ? pick(batch.connections) : null;
+
+const CONNECTION_RATE_SERIES: ChartSeries[] = [
+  { label: 'established', value: conn((c) => c.cps) },
+  { label: 'errors', value: conn((c) => c.errorsPerSec) },
+];
+
+const OPEN_CONNECTIONS_SERIES: ChartSeries[] = [
+  { label: 'active', value: conn((c) => c.active) },
+];
+
+const APP_THROUGHPUT_SERIES: ChartSeries[] = [
+  { label: 'tx', value: conn((c) => c.txBps) },
+  { label: 'rx', value: conn((c) => c.rxBps) },
+];
+
+const FAILURE_SERIES: ChartSeries[] = [
+  { label: 'failed', value: conn((c) => c.failurePct) },
+];
+
 /** The charts shown while a run is in flight. */
 function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
   const stateful = useHasConnections(stream);
-  // Series are derived from the batch each second rather than from a fixed list
-  // of ids, because a run's flows are known only once data starts arriving.
-  const rateSeries: ChartSeries[] = useMemo(
-    () => [
-      { label: 'tx', value: (b: StatsBatch) => sumStreams(b, (s) => s.txPps) },
-      { label: 'rx', value: (b: StatsBatch) => sumStreams(b, (s) => s.rxPps) },
-    ],
-    [],
-  );
-
-  const lossSeries: ChartSeries[] = useMemo(
-    () => [{ label: 'loss', value: (b: StatsBatch) => sumStreams(b, (s) => s.lossPps) }],
-    [],
-  );
-
-  const latencySeries: ChartSeries[] = useMemo(
-    () => [
-      { label: 'p50', value: (b: StatsBatch) => firstLatency(b, 'p50Us') },
-      { label: 'p99', value: (b: StatsBatch) => firstLatency(b, 'p99Us') },
-      { label: 'max', value: (b: StatsBatch) => firstLatency(b, 'maxUs') },
-    ],
-    [],
-  );
 
   if (stateful) {
     return <ConnectionCharts stream={stream} />;
@@ -307,34 +394,22 @@ function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
 
   return (
     <div className="chart-grid">
-      <Surface title="Packet rate">
-        <LiveChart stream={stream} series={rateSeries} unit="pps" format={formatPps} />
-      </Surface>
-
-      <Surface title="Loss">
-        <LiveChart stream={stream} series={lossSeries} unit="pps" format={formatPps} />
-      </Surface>
-
-      <Surface title="Throughput">
-        <LiveChart
-          stream={stream}
-          series={[
-            { label: 'tx', value: (b) => sumPorts(b, (p) => p.txBps) },
-            { label: 'rx', value: (b) => sumPorts(b, (p) => p.rxBps) },
-          ]}
-          unit="bits/s"
-          format={formatBitrate}
-        />
-      </Surface>
-
-      <Surface title="Latency">
-        <LiveChart
-          stream={stream}
-          series={latencySeries}
-          unit="µs"
-          format={(v) => `${v.toFixed(1)}`}
-        />
-      </Surface>
+      <ChartPanel stream={stream} title="Packet rate" series={RATE_SERIES} unit="pps" format={formatPps} />
+      <ChartPanel stream={stream} title="Loss" series={LOSS_SERIES} unit="pps" format={formatPps} />
+      <ChartPanel
+        stream={stream}
+        title="Throughput"
+        series={THROUGHPUT_SERIES}
+        unit="bits/s"
+        format={formatBitrate}
+      />
+      <ChartPanel
+        stream={stream}
+        title="Latency"
+        series={LATENCY_SERIES}
+        unit="µs"
+        format={(v) => `${v.toFixed(1)}`}
+      />
     </div>
   );
 }
@@ -348,54 +423,36 @@ function LiveCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
  * rather than sitting alongside them.
  */
 function ConnectionCharts({ stream }: { stream: ReturnType<typeof useStatsStream> }) {
-  const conn =
-    <T,>(pick: (c: NonNullable<StatsBatch['connections']>) => T) =>
-    (batch: StatsBatch) =>
-      batch.connections ? (pick(batch.connections) as number) : null;
-
   return (
     <div className="chart-grid">
-      <Surface title="Connection rate">
-        <LiveChart
-          stream={stream}
-          series={[
-            { label: 'established', value: conn((c) => c.cps) },
-            { label: 'errors', value: conn((c) => c.errorsPerSec) },
-          ]}
-          unit="conn/s"
-          format={(v) => formatCount(Math.round(v))}
-        />
-      </Surface>
-
-      <Surface title="Open connections">
-        <LiveChart
-          stream={stream}
-          series={[{ label: 'active', value: conn((c) => c.active) }]}
-          unit="connections"
-          format={(v) => formatCount(Math.round(v))}
-        />
-      </Surface>
-
-      <Surface title="Application throughput">
-        <LiveChart
-          stream={stream}
-          series={[
-            { label: 'tx', value: conn((c) => c.txBps) },
-            { label: 'rx', value: conn((c) => c.rxBps) },
-          ]}
-          unit="bits/s"
-          format={formatBitrate}
-        />
-      </Surface>
-
-      <Surface title="Failure rate">
-        <LiveChart
-          stream={stream}
-          series={[{ label: 'failed', value: conn((c) => c.failurePct) }]}
-          unit="%"
-          format={(v) => `${v.toFixed(2)}%`}
-        />
-      </Surface>
+      <ChartPanel
+        stream={stream}
+        title="Connection rate"
+        series={CONNECTION_RATE_SERIES}
+        unit="conn/s"
+        format={(v) => formatCount(Math.round(v))}
+      />
+      <ChartPanel
+        stream={stream}
+        title="Open connections"
+        series={OPEN_CONNECTIONS_SERIES}
+        unit="connections"
+        format={(v) => formatCount(Math.round(v))}
+      />
+      <ChartPanel
+        stream={stream}
+        title="Application throughput"
+        series={APP_THROUGHPUT_SERIES}
+        unit="bits/s"
+        format={formatBitrate}
+      />
+      <ChartPanel
+        stream={stream}
+        title="Failure rate"
+        series={FAILURE_SERIES}
+        unit="%"
+        format={(v) => `${v.toFixed(2)}%`}
+      />
     </div>
   );
 }
@@ -471,7 +528,7 @@ function ResultRow({ result }: { result: RunResult }) {
     return (
       <tr>
         <td className="mono">{result.iteration}</td>
-        <td colSpan={9} className="dim">
+        <td colSpan={9} className="empty">
           This result was recorded in a format this interface does not understand.
         </td>
       </tr>
@@ -483,14 +540,14 @@ function ResultRow({ result }: { result: RunResult }) {
   return (
     <tr>
       <td className="mono">{result.iteration}</td>
-      <td className="mono">{params?.flowName ?? '—'}</td>
+      <td className="mono">{params?.flowName ?? <Dash />}</td>
       <td className="mono">{result.frameSize ?? 'mixed'}</td>
       <td className="num">{formatCount(m.txPackets)}</td>
       <td className="num">{formatCount(m.rxPackets)}</td>
       <td className="num">{formatCount(m.lostPackets)}</td>
       <td className="num">{formatPercent(m.lossPct / 100, 3)}</td>
-      <td className="num">{m.latP50 !== null ? m.latP50.toFixed(1) : '—'}</td>
-      <td className="num">{m.latP99 !== null ? m.latP99.toFixed(1) : '—'}</td>
+      <td className="num">{m.latP50 !== null ? m.latP50.toFixed(1) : <Dash />}</td>
+      <td className="num">{m.latP99 !== null ? m.latP99.toFixed(1) : <Dash />}</td>
       <td>
         <Badge tone={result.passed ? 'ok' : 'crit'}>{result.passed ? 'recorded' : 'failed'}</Badge>
       </td>
@@ -502,13 +559,13 @@ function ResultRow({ result }: { result: RunResult }) {
 function SnapshotPanel({ detail }: { detail: RunDetail }) {
   return (
     <Surface title="Configuration snapshot">
-      <p className="dim" style={{ margin: '0 0 10px', fontSize: 12.5 }}>
-        The resolved configuration at the moment this run started. It is kept with the run so a
-        historical result stays interpretable after the test has moved on.
-      </p>
-      <pre className="hex-dump" style={{ borderRadius: 8, maxHeight: 320, overflow: 'auto' }}>
-        {JSON.stringify(detail.configSnapshot, null, 2)}
-      </pre>
+      <div className="stack gap-10">
+        <p className="note">
+          The resolved configuration at the moment this run started. It is kept with the run so a
+          historical result stays interpretable after the test has moved on.
+        </p>
+        <pre className="code-block">{JSON.stringify(detail.configSnapshot, null, 2)}</pre>
+      </div>
     </Surface>
   );
 }

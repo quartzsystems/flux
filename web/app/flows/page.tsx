@@ -9,19 +9,26 @@
  * sees here is what will go on the wire.
  */
 
-import {
-  IconAlertTriangle,
-  IconDeviceFloppy,
-  IconFileImport,
-  IconPlus,
-  IconTrash,
-} from '@tabler/icons-react';
+import { Save, Import, Plus, Trash2 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
 import { HeaderStack } from '@/components/HeaderStack';
-import { Alert, Badge, EmptyRow, PageHeader, Skeleton, Surface } from '@/components/ui';
+import { SummaryBar } from '@/components/SummaryBar';
+import {
+  Alert,
+  Badge,
+  Empty,
+  EmptyRow,
+  Page,
+  PageBody,
+  PageHeader,
+  Surface,
+  TableSkeleton,
+} from '@/components/ui';
+import { CheckRow } from '@/components/ui/formkit';
+import { ModalHeader, ModalShell } from '@/components/ui/Modal';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import {
   flowConfigSchema,
@@ -91,7 +98,7 @@ function Flows() {
   };
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Flows"
         subtitle={
@@ -113,77 +120,72 @@ function Flows() {
                   : 'Create a flow'
             }
           >
-            <IconPlus size={15} stroke={2} />
+            <Plus size={15} />
             New flow
           </button>
         }
       />
 
-      <div className="flow-layout">
-        <Surface title="Defined flows" padded={false}>
-          <div className="qz-table-wrap">
-            <table className="qz-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              {flows.isLoading ? (
-                <tbody>
+      <PageBody>
+        <div className="flow-layout">
+          <Surface title="Defined flows" padded={false}>
+            <div className="qz-table-wrap">
+              <table className="qz-table">
+                <thead>
                   <tr>
-                    <td colSpan={2}>
-                      <Skeleton height={14} />
-                    </td>
+                    <th>Name</th>
+                    <th>Updated</th>
                   </tr>
-                </tbody>
-              ) : (
-                <tbody>
-                  {(flows.data ?? []).length === 0 ? (
-                    <EmptyRow columns={2}>No flows yet.</EmptyRow>
-                  ) : (
-                    (flows.data ?? []).map((flow) => (
-                      <tr
-                        key={flow.id}
-                        aria-selected={flow.id === selected}
-                        onClick={() => open(flow)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td className="mono">{flow.name}</td>
-                        <td className="dim" style={{ fontSize: 12 }}>
-                          {new Date(flow.updatedAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              )}
-            </table>
-          </div>
-        </Surface>
-
-        {draft ? (
-          <FlowEditor
-            key={selected ?? 'new'}
-            flowId={selected}
-            initial={draft}
-            ports={ports.data ?? []}
-            onClose={() => {
-              setDraft(null);
-              setSelected(null);
-            }}
-          />
-        ) : (
-          <Surface>
-            <p className="dim" style={{ margin: 0, fontSize: 13 }}>
-              {selected
-                ? 'This flow was written by a different version of Flux and cannot be shown here.'
-                : 'Select a flow to edit it, or create a new one.'}
-            </p>
+                </thead>
+                {flows.isLoading ? (
+                  <TableSkeleton columns={2} rows={4} />
+                ) : (
+                  <tbody>
+                    {(flows.data ?? []).length === 0 ? (
+                      <EmptyRow columns={2}>No flows yet.</EmptyRow>
+                    ) : (
+                      (flows.data ?? []).map((flow) => (
+                        <tr
+                          key={flow.id}
+                          aria-selected={flow.id === selected}
+                          onClick={() => open(flow)}
+                        >
+                          <td className="mono">{flow.name}</td>
+                          <td className="dim">
+                            {new Date(flow.updatedAt).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                )}
+              </table>
+            </div>
           </Surface>
-        )}
-      </div>
-    </div>
+
+          {draft ? (
+            <FlowEditor
+              key={selected ?? 'new'}
+              flowId={selected}
+              initial={draft}
+              ports={ports.data ?? []}
+              onClose={() => {
+                setDraft(null);
+                setSelected(null);
+              }}
+            />
+          ) : (
+            <Surface padded={false}>
+              <Empty>
+                {selected
+                  ? 'This flow was written by a different version of Flux and cannot be shown here.'
+                  : 'Select a flow to edit it, or create a new one.'}
+              </Empty>
+            </Surface>
+          )}
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -206,6 +208,7 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
   const [banner, setBanner] = useState<string | null>(null);
   const [preview, setPreview] = useState<FlowPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Previewing on every keystroke would send a request per character; the
   // debounce keeps it to one per pause without making the summary feel stale.
@@ -264,6 +267,8 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
       onClose();
     },
     onError: (err: unknown) => {
+      // Close the confirm dialog so the banner explaining the refusal shows.
+      setConfirmingDelete(false);
       if (err instanceof ApiError) setBanner(err.message);
     },
   });
@@ -285,9 +290,9 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
                 className="btn btn-ghost btn-sm btn-icon"
                 title="Delete this flow"
                 disabled={remove.isPending}
-                onClick={() => remove.mutate()}
+                onClick={() => setConfirmingDelete(true)}
               >
-                <IconTrash size={14} stroke={1.8} />
+                <Trash2 size={14} />
               </button>
             ) : null}
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -299,19 +304,14 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
               disabled={!can('operator') || save.isPending || !name.trim()}
               onClick={() => save.mutate()}
             >
-              <IconDeviceFloppy size={14} stroke={1.8} />
+              <Save size={14} />
               {save.isPending ? 'Saving…' : 'Save'}
             </button>
           </>
         }
       >
         <div className="stack gap-18">
-          {banner ? (
-            <Alert tone="danger">
-              <IconAlertTriangle size={16} stroke={1.8} />
-              <span>{banner}</span>
-            </Alert>
-          ) : null}
+          {banner ? <Alert tone="danger">{banner}</Alert> : null}
 
           <div className="field-grid">
             <label className="field">
@@ -395,8 +395,7 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
             <label className="field">
               <span className="field-label">Duration (seconds)</span>
               <input
-                className="input"
-                style={{ fontFamily: 'var(--qz-font-mono)' }}
+                className="input input-mono"
                 placeholder="until stopped"
                 value={config.durationSecs ?? ''}
                 aria-invalid={Boolean(errors['config.durationSecs'])}
@@ -410,19 +409,17 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
               ) : null}
             </label>
 
-            <label className="field" style={{ justifyContent: 'flex-end' }}>
-              <span className="row gap-8" style={{ fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={config.latencyTrack}
-                  onChange={(e) => set('latencyTrack', e.target.checked)}
-                />
+            <div className="field">
+              <CheckRow
+                checked={config.latencyTrack}
+                onChange={() => set('latencyTrack', !config.latencyTrack)}
+              >
                 Measure latency
-              </span>
-              <span className="muted" style={{ fontSize: 11.5 }}>
+              </CheckRow>
+              <span className="field-hint">
                 Adds a timestamp to each frame; costs a little transmit capacity.
               </span>
-            </label>
+            </div>
           </div>
         </div>
       </Surface>
@@ -436,10 +433,57 @@ function FlowEditor({ flowId, initial, ports, onClose }: EditorProps) {
         />
       </Surface>
 
-      <SummaryBar preview={preview} error={previewError} />
+      <FlowSummary preview={preview} error={previewError} />
 
       {preview ? <HexPreview preview={preview} /> : null}
+
+      {confirmingDelete ? (
+        <DeleteFlowDialog
+          name={name}
+          pending={remove.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => remove.mutate()}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** The confirmation a delete has to pass through before anything is sent. */
+function DeleteFlowDialog({
+  name,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell onClose={onCancel} maxWidth={440}>
+      <ModalHeader
+        title={`Delete ${name.trim() || 'this flow'}?`}
+        subtitle="Stored flow definition."
+        onClose={onCancel}
+      />
+      <div className="stack gap-14">
+        <p className="text-[13px] text-[var(--qz-fg-3)] m-0">
+          The definition is removed from this instance. A test that references it will no
+          longer be able to run it, and there is no undo.
+        </p>
+        <div className="row end gap-8">
+          <button type="button" className="btn btn-secondary" disabled={pending} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-danger" disabled={pending} onClick={onConfirm}>
+            <Trash2 size={14} />
+            {pending ? 'Deleting…' : 'Delete flow'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -477,8 +521,7 @@ function SizeEditor({
         <label className="field">
           <span className="field-label">Bytes (including FCS)</span>
           <input
-            className="input"
-            style={{ fontFamily: 'var(--qz-font-mono)' }}
+            className="input input-mono"
             value={size.bytes}
             aria-invalid={Boolean(errors['config.size.bytes'] ?? errors['config.size'])}
             onChange={(e) => onChange({ type: 'fixed', bytes: globalThis.Number(e.target.value) || 0 })}
@@ -512,8 +555,7 @@ function SizeEditor({
           <label className="field">
             <span className="field-label">Minimum</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={size.min}
               onChange={(e) =>
                 onChange({ type: 'random', min: globalThis.Number(e.target.value) || 0, max: size.max })
@@ -523,8 +565,7 @@ function SizeEditor({
           <label className="field">
             <span className="field-label">Maximum</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={size.max}
               aria-invalid={Boolean(errors['config.size.max'])}
               onChange={(e) =>
@@ -576,8 +617,7 @@ function RateEditor({
       <label className="field">
         <span className="field-label">{unit}</span>
         <input
-          className="input"
-          style={{ fontFamily: 'var(--qz-font-mono)' }}
+          className="input input-mono"
           value={rate.value}
           aria-invalid={Boolean(errors['config.rate.value'])}
           onChange={(e) =>
@@ -631,7 +671,7 @@ function ModifierTable({
                 <tr key={index}>
                   <td>
                     <select
-                      className="select"
+                      className="select input-sm"
                       style={{ minWidth: 180 }}
                       value={modifier.field}
                       onChange={(e) =>
@@ -657,8 +697,7 @@ function ModifierTable({
                   </td>
                   <td>
                     <select
-                      className="select"
-                      style={{ width: 120 }}
+                      className="select input-sm"
                       value={modifier.mode}
                       onChange={(e) =>
                         replace(index, {
@@ -673,8 +712,8 @@ function ModifierTable({
                   </td>
                   <td>
                     <input
-                      className="input"
-                      style={{ width: 100, fontFamily: 'var(--qz-font-mono)' }}
+                      className="input input-sm input-mono"
+                      style={{ width: 100 }}
                       value={modifier.count}
                       aria-invalid={Boolean(errors[`config.modifiers.${index}.count`])}
                       onChange={(e) =>
@@ -689,22 +728,22 @@ function ModifierTable({
                   </td>
                   <td>
                     <input
-                      className="input"
-                      style={{ width: 80, fontFamily: 'var(--qz-font-mono)' }}
+                      className="input input-sm input-mono"
+                      style={{ width: 100 }}
                       value={modifier.step}
                       onChange={(e) =>
                         replace(index, { ...modifier, step: globalThis.Number(e.target.value) || 1 })
                       }
                     />
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td className="right">
                     <button
                       type="button"
                       className="btn btn-ghost btn-sm btn-icon"
                       title="Remove modifier"
                       onClick={() => onChange(modifiers.filter((_, i) => i !== index))}
                     >
-                      <IconTrash size={14} stroke={1.8} />
+                      <Trash2 size={14} />
                     </button>
                   </td>
                 </tr>
@@ -713,7 +752,7 @@ function ModifierTable({
           </table>
         </div>
       ) : (
-        <p className="dim" style={{ margin: 0, fontSize: 13 }}>
+        <p className="note">
           No modifiers. Add one to vary a field across generated frames — this is how one
           flow emulates many hosts.
         </p>
@@ -734,7 +773,7 @@ function ModifierTable({
             if (first) onChange([...modifiers, defaultModifier(first)]);
           }}
         >
-          <IconPlus size={14} stroke={2} />
+          <Plus size={14} />
           Add modifier
         </button>
       </div>
@@ -742,50 +781,42 @@ function ModifierTable({
   );
 }
 
-/** The computed summary bar under the editor. */
-function SummaryBar({ preview, error }: { preview: FlowPreview | null; error: string | null }) {
+/** The computed summary bar under the editor, on the shared chassis. */
+function FlowSummary({ preview, error }: { preview: FlowPreview | null; error: string | null }) {
   if (error) {
-    return (
-      <Alert tone="danger">
-        <IconAlertTriangle size={16} stroke={1.8} />
-        <span>{error}</span>
-      </Alert>
-    );
+    return <Alert tone="danger">{error}</Alert>;
   }
 
   if (!preview) {
-    return (
-      <div className="summary-bar">
-        <Skeleton height={16} width={340} />
-      </div>
-    );
+    return <SummaryBar loading />;
   }
 
+  // The percentage badge only means something when the port speed is known and
+  // the rate fits on the wire; the other two states get their own badge.
+  const badge = preview.exceedsLineRate ? (
+    <Badge tone="crit">exceeds line rate</Badge>
+  ) : preview.portSpeedMbps > 0 ? undefined : (
+    <Badge tone="muted">port speed unknown</Badge>
+  );
+
   return (
-    <div className="summary-bar">
-      <div className="row gap-14" style={{ flexWrap: 'wrap' }}>
-        <span className="mono" style={{ color: 'var(--qz-fg-1)', fontSize: 13 }}>
-          {preview.summary}
-        </span>
-
-        {preview.exceedsLineRate ? (
-          <Badge tone="crit">exceeds line rate</Badge>
-        ) : preview.portSpeedMbps > 0 ? (
-          <Badge tone={preview.rate.linePct > 90 ? 'warn' : 'ok'}>
-            {preview.rate.linePct.toFixed(1)}% of line
-          </Badge>
-        ) : (
-          <Badge tone="muted">port speed unknown</Badge>
-        )}
-      </div>
-
-      <div className="row gap-14 mono" style={{ fontSize: 11.5, color: 'var(--qz-fg-4)' }}>
-        <span>{formatPps(preview.rate.pps)}</span>
-        <span>L1 {formatBitrate(preview.rate.bpsL1)}</span>
-        <span>L2 {formatBitrate(preview.rate.bpsL2)}</span>
-        <span>{preview.headerBytes}B headers</span>
-      </div>
-    </div>
+    <SummaryBar
+      items={[
+        {
+          value: preview.summary,
+          meta: (
+            <>
+              <span>{formatPps(preview.rate.pps)}</span>
+              <span>L1 {formatBitrate(preview.rate.bpsL1)}</span>
+              <span>L2 {formatBitrate(preview.rate.bpsL2)}</span>
+              <span>{preview.headerBytes}B headers</span>
+            </>
+          ),
+        },
+      ]}
+      linePct={badge ? undefined : preview.rate.linePct}
+      badge={badge}
+    />
   );
 }
 
@@ -802,8 +833,7 @@ function HexPreview({ preview }: { preview: FlowPreview }) {
       actions={
         preview.frames.length > 1 ? (
           <select
-            className="select"
-            style={{ width: 140 }}
+            className="select input-sm"
             value={index}
             onChange={(e) => setIndex(globalThis.Number(e.target.value))}
           >
@@ -818,10 +848,12 @@ function HexPreview({ preview }: { preview: FlowPreview }) {
       padded={false}
     >
       <pre className="hex-dump">{frame.hexDump}</pre>
-      <p className="muted" style={{ margin: 0, padding: '0 18px 14px', fontSize: 11.5 }}>
-        {frame.bytes.length} bytes transmitted; the NIC appends a 4-byte FCS for {frame.wireLen}{' '}
-        on the wire.
-      </p>
+      <div className="surface-body">
+        <p className="note">
+          {frame.bytes.length} bytes transmitted; the NIC appends a 4-byte FCS for {frame.wireLen}{' '}
+          on the wire.
+        </p>
+      </div>
     </Surface>
   );
 }
@@ -858,7 +890,7 @@ function PcapImport({
   });
 
   return (
-    <div className="stack" style={{ alignItems: 'flex-end', gap: 4 }}>
+    <div className="stack gap-6" style={{ alignItems: 'flex-end' }}>
       <input
         ref={input}
         type="file"
@@ -878,7 +910,7 @@ function PcapImport({
         title="Read the header stack from the first packet of a capture"
         onClick={() => input.current?.click()}
       >
-        <IconFileImport size={14} stroke={1.8} />
+        <Import size={14} />
         {load.isPending ? 'Reading…' : 'Import from pcap'}
       </button>
 

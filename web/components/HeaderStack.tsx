@@ -9,8 +9,9 @@
  * field here against a capture.
  */
 
-import { IconChevronDown, IconChevronUp, IconPlus, IconTrash } from '@tabler/icons-react';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 
+import { CheckRow, Field, SelectInput, TextInput } from '@/components/ui/formkit';
 import type { HeaderLayer, HeaderProto } from '@/lib/api-types';
 import { defaultLayer, layerBytes, PROTO_LABELS } from '@/lib/flow-defaults';
 
@@ -63,7 +64,7 @@ export function HeaderStack({ headers, onChange, errors }: HeaderStackProps) {
                 +{start} · {layerBytes(layer)}B
               </span>
 
-              <div className="row gap-6" style={{ marginLeft: 'auto' }}>
+              <div className="row gap-6 ml-auto">
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm btn-icon"
@@ -71,7 +72,7 @@ export function HeaderStack({ headers, onChange, errors }: HeaderStackProps) {
                   disabled={index === 0}
                   onClick={() => move(index, -1)}
                 >
-                  <IconChevronUp size={14} stroke={1.8} />
+                  <ChevronUp size={14} />
                 </button>
                 <button
                   type="button"
@@ -80,7 +81,7 @@ export function HeaderStack({ headers, onChange, errors }: HeaderStackProps) {
                   disabled={index === headers.length - 1}
                   onClick={() => move(index, 1)}
                 >
-                  <IconChevronDown size={14} stroke={1.8} />
+                  <ChevronDown size={14} />
                 </button>
                 <button
                   type="button"
@@ -88,7 +89,7 @@ export function HeaderStack({ headers, onChange, errors }: HeaderStackProps) {
                   title="Remove layer"
                   onClick={() => onChange(headers.filter((_, i) => i !== index))}
                 >
-                  <IconTrash size={14} stroke={1.8} />
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -106,8 +107,8 @@ export function HeaderStack({ headers, onChange, errors }: HeaderStackProps) {
       })}
 
       <div className="row gap-6" style={{ flexWrap: 'wrap' }}>
-        <span className="muted" style={{ fontSize: 12, marginRight: 4 }}>
-          <IconPlus size={12} stroke={2} style={{ verticalAlign: -2 }} /> Add layer
+        <span className="note">
+          <Plus size={12} style={{ verticalAlign: -2 }} /> Add layer
         </span>
         {ADDABLE.map((proto) => (
           <button
@@ -245,10 +246,12 @@ function LayerFields({ layer, onChange, errors, path }: FieldsProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Field primitives
+// Field primitives — thin wrappers over formkit's shared controls, keeping
+// this file's conveniences (`hex`, `optional`, `wide`) local to the layers
+// that need them.
 // ---------------------------------------------------------------------------
 
-/** A text input with an optional inline error. */
+/** A text input with the shared field chrome. */
 function Text({
   label,
   value,
@@ -264,22 +267,15 @@ function Text({
   error?: string;
   hint?: string;
   mono?: boolean;
+  /** Spans the full field grid — for values too long for one column. */
   wide?: boolean;
 }) {
-  return (
-    <label className="field" style={wide ? { gridColumn: '1 / -1' } : undefined}>
-      <span className="field-label">{label}</span>
-      <input
-        className="input"
-        style={mono ? { fontFamily: 'var(--qz-font-mono)' } : undefined}
-        value={value}
-        aria-invalid={Boolean(error)}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {error ? <span className="field-error">{error}</span> : null}
-      {!error && hint ? <span className="muted" style={{ fontSize: 11.5 }}>{hint}</span> : null}
-    </label>
+  const field = (
+    <Field label={label} hint={hint} error={error}>
+      <TextInput value={value} onChange={onChange} mono={mono} invalid={Boolean(error)} />
+    </Field>
   );
+  return wide ? <div style={{ gridColumn: '1 / -1' }}>{field}</div> : field;
 }
 
 /**
@@ -308,15 +304,13 @@ function Number({
   const display = value === undefined ? '' : hex ? `0x${value.toString(16)}` : String(value);
 
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <input
-        className="input"
-        style={{ fontFamily: 'var(--qz-font-mono)' }}
+    <Field label={label} hint={hint} error={error}>
+      <TextInput
+        mono
         value={display}
-        aria-invalid={Boolean(error)}
-        onChange={(e) => {
-          const raw = e.target.value.trim();
+        invalid={Boolean(error)}
+        onChange={(next) => {
+          const raw = next.trim();
           if (raw === '') {
             onChange(optional ? undefined : 0);
             return;
@@ -325,38 +319,36 @@ function Number({
           if (!globalThis.isNaN(parsed)) onChange(parsed);
         }}
       />
-      {error ? <span className="field-error">{error}</span> : null}
-      {!error && hint ? <span className="muted" style={{ fontSize: 11.5 }}>{hint}</span> : null}
-    </label>
+    </Field>
   );
 }
 
-/** A select. */
+/** A select with the shared field chrome. */
 function Select({
   label,
   value,
   options,
   onChange,
   error,
+  hint,
 }: {
   label: string;
   value: string;
   options: [string, string][];
   onChange: (value: string) => void;
   error?: string;
+  hint?: string;
 }) {
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+    <Field label={label} hint={hint} error={error}>
+      <SelectInput value={value} onChange={onChange} invalid={Boolean(error)}>
         {options.map(([v, text]) => (
           <option key={v} value={v}>
             {text}
           </option>
         ))}
-      </select>
-      {error ? <span className="field-error">{error}</span> : null}
-    </label>
+      </SelectInput>
+    </Field>
   );
 }
 
@@ -365,17 +357,22 @@ function Check({
   label,
   checked,
   onChange,
+  error,
+  hint,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  error?: string;
+  hint?: string;
 }) {
   return (
-    <label className="field" style={{ justifyContent: 'flex-end' }}>
-      <span className="row gap-8" style={{ fontSize: 13 }}>
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-        {label}
-      </span>
-    </label>
+    <div>
+      <CheckRow checked={checked} onChange={() => onChange(!checked)}>
+        <span className="text-[13px]">{label}</span>
+      </CheckRow>
+      {error ? <span className="field-error">{error}</span> : null}
+      {!error && hint ? <span className="field-hint">{hint}</span> : null}
+    </div>
   );
 }

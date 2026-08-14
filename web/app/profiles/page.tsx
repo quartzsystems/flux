@@ -9,12 +9,24 @@
  * is far better than seeing a run quietly top out.
  */
 
-import { IconAlertTriangle, IconDeviceFloppy, IconPlus, IconTrash } from '@tabler/icons-react';
+import { Save, Plus, Trash2 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { AppShell } from '@/components/AppShell';
-import { Alert, Badge, EmptyRow, PageHeader, Skeleton, Surface } from '@/components/ui';
+import { SummaryBar } from '@/components/SummaryBar';
+import {
+  Alert,
+  Badge,
+  Empty,
+  EmptyRow,
+  Page,
+  PageBody,
+  PageHeader,
+  Surface,
+  TableSkeleton,
+} from '@/components/ui';
+import { ModalHeader, ModalShell } from '@/components/ui/Modal';
 import { ApiError, api, queryKeys } from '@/lib/api';
 import {
   defaultLoadProfile,
@@ -71,7 +83,7 @@ function Profiles() {
   };
 
   return (
-    <div className="page stack gap-18">
+    <Page>
       <PageHeader
         title="Load profiles"
         subtitle={
@@ -89,84 +101,77 @@ function Profiles() {
                 : 'Create a load profile'
             }
           >
-            <IconPlus size={15} stroke={2} />
+            <Plus size={15} />
             New profile
           </button>
         }
       />
 
-      <Alert tone="info">
-        <span>
+      <PageBody>
+        <Alert tone="info">
           A profile emulates clients opening connections to servers Flux also emulates. It needs a
           port group in <strong>stateful</strong> mode — a stateless instance cannot run one.
-        </span>
-      </Alert>
+        </Alert>
 
-      <div className="flow-layout">
-        <Surface title="Defined profiles" padded={false}>
-          <div className="qz-table-wrap">
-            <table className="qz-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              {profiles.isLoading ? (
-                <tbody>
+        <div className="flow-layout">
+          <Surface title="Defined profiles" padded={false}>
+            <div className="qz-table-wrap">
+              <table className="qz-table">
+                <thead>
                   <tr>
-                    <td colSpan={2}>
-                      <Skeleton height={14} />
-                    </td>
+                    <th>Name</th>
+                    <th>Updated</th>
                   </tr>
-                </tbody>
-              ) : (
-                <tbody>
-                  {(profiles.data ?? []).length === 0 ? (
-                    <EmptyRow columns={2}>No profiles yet.</EmptyRow>
-                  ) : (
-                    (profiles.data ?? []).map((profile) => (
-                      <tr
-                        key={profile.id}
-                        aria-selected={profile.id === selected}
-                        onClick={() => open(profile)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td className="mono">{profile.name}</td>
-                        <td className="dim" style={{ fontSize: 12 }}>
-                          {new Date(profile.updatedAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              )}
-            </table>
-          </div>
-        </Surface>
-
-        {draft ? (
-          <ProfileEditor
-            key={selected ?? 'new'}
-            profileId={selected}
-            initial={draft}
-            ports={ports.data ?? []}
-            onClose={() => {
-              setDraft(null);
-              setSelected(null);
-            }}
-          />
-        ) : (
-          <Surface>
-            <p className="dim" style={{ margin: 0, fontSize: 13 }}>
-              {selected
-                ? 'This profile was written by a different version of Flux and cannot be shown here.'
-                : 'Select a profile to edit it, or create a new one.'}
-            </p>
+                </thead>
+                {profiles.isLoading ? (
+                  <TableSkeleton columns={2} rows={4} />
+                ) : (
+                  <tbody>
+                    {(profiles.data ?? []).length === 0 ? (
+                      <EmptyRow columns={2}>No profiles yet.</EmptyRow>
+                    ) : (
+                      (profiles.data ?? []).map((profile) => (
+                        <tr
+                          key={profile.id}
+                          aria-selected={profile.id === selected}
+                          onClick={() => open(profile)}
+                        >
+                          <td className="mono">{profile.name}</td>
+                          <td className="dim">
+                            {new Date(profile.updatedAt).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                )}
+              </table>
+            </div>
           </Surface>
-        )}
-      </div>
-    </div>
+
+          {draft ? (
+            <ProfileEditor
+              key={selected ?? 'new'}
+              profileId={selected}
+              initial={draft}
+              ports={ports.data ?? []}
+              onClose={() => {
+                setDraft(null);
+                setSelected(null);
+              }}
+            />
+          ) : (
+            <Surface padded={false}>
+              <Empty>
+                {selected
+                  ? 'This profile was written by a different version of Flux and cannot be shown here.'
+                  : 'Select a profile to edit it, or create a new one.'}
+              </Empty>
+            </Surface>
+          )}
+        </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -190,6 +195,7 @@ function ProfileEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<string | null>(null);
   const [preview, setPreview] = useState<ProfilePreview | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const body = useMemo(() => ({ name: name || 'unnamed', config }), [name, config]);
 
@@ -243,6 +249,8 @@ function ProfileEditor({
       onClose();
     },
     onError: (err: unknown) => {
+      // Close the confirm dialog so the banner explaining the refusal shows.
+      setConfirmingDelete(false);
       if (err instanceof ApiError) setBanner(err.message);
     },
   });
@@ -266,9 +274,9 @@ function ProfileEditor({
                 className="btn btn-ghost btn-sm btn-icon"
                 title="Delete this profile"
                 disabled={remove.isPending}
-                onClick={() => remove.mutate()}
+                onClick={() => setConfirmingDelete(true)}
               >
-                <IconTrash size={14} stroke={1.8} />
+                <Trash2 size={14} />
               </button>
             ) : null}
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
@@ -280,19 +288,14 @@ function ProfileEditor({
               disabled={!can('operator') || save.isPending || !name.trim()}
               onClick={() => save.mutate()}
             >
-              <IconDeviceFloppy size={14} stroke={1.8} />
+              <Save size={14} />
               {save.isPending ? 'Saving…' : 'Save'}
             </button>
           </>
         }
       >
         <div className="stack gap-18">
-          {banner ? (
-            <Alert tone="danger">
-              <IconAlertTriangle size={16} stroke={1.8} />
-              <span>{banner}</span>
-            </Alert>
-          ) : null}
+          {banner ? <Alert tone="danger">{banner}</Alert> : null}
 
           <div className="field-grid">
             <label className="field">
@@ -380,8 +383,7 @@ function ProfileEditor({
           <label className="field">
             <span className="field-label">Connections per second</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={config.targetCps}
               aria-invalid={Boolean(error('targetCps'))}
               onChange={(e) => set('targetCps', Number(e.target.value) || 0)}
@@ -394,8 +396,7 @@ function ProfileEditor({
           <label className="field">
             <span className="field-label">Maximum concurrent</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={config.maxConcurrent}
               aria-invalid={Boolean(error('maxConcurrent'))}
               onChange={(e) => set('maxConcurrent', Number(e.target.value) || 0)}
@@ -408,14 +409,13 @@ function ProfileEditor({
           <label className="field">
             <span className="field-label">Warm-up (seconds)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={config.ramp.warmupSecs}
               onChange={(e) =>
                 set('ramp', { ...config.ramp, warmupSecs: Number(e.target.value) || 0 })
               }
             />
-            <span className="muted" style={{ fontSize: 11.5 }}>
+            <span className="field-hint">
               Climbing to the target rate rather than stepping to it.
             </span>
           </label>
@@ -423,14 +423,13 @@ function ProfileEditor({
           <label className="field">
             <span className="field-label">Settle (seconds)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={config.ramp.settleSecs}
               onChange={(e) =>
                 set('ramp', { ...config.ramp, settleSecs: Number(e.target.value) || 0 })
               }
             />
-            <span className="muted" style={{ fontSize: 11.5 }}>
+            <span className="field-hint">
               Ignored after the warm-up; measuring through it reports a transient.
             </span>
           </label>
@@ -438,8 +437,7 @@ function ProfileEditor({
           <label className="field">
             <span className="field-label">Duration (seconds)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               placeholder="until stopped"
               value={config.durationSecs ?? ''}
               onChange={(e) => {
@@ -452,11 +450,58 @@ function ProfileEditor({
       </Surface>
 
       <ProfileSummary preview={preview} />
+
+      {confirmingDelete ? (
+        <DeleteProfileDialog
+          name={name}
+          pending={remove.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => remove.mutate()}
+        />
+      ) : null}
     </div>
   );
 }
 
-/** One address pool. */
+/** The confirmation a delete has to pass through before anything is sent. */
+function DeleteProfileDialog({
+  name,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <ModalShell onClose={onCancel} maxWidth={440}>
+      <ModalHeader
+        title={`Delete ${name.trim() || 'this profile'}?`}
+        subtitle="Stored load profile."
+        onClose={onCancel}
+      />
+      <div className="stack gap-14">
+        <p className="text-[13px] text-[var(--qz-fg-3)] m-0">
+          The definition is removed from this instance. A test that references it will no
+          longer be able to run it, and there is no undo.
+        </p>
+        <div className="row end gap-8">
+          <button type="button" className="btn btn-secondary" disabled={pending} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-danger" disabled={pending} onClick={onConfirm}>
+            <Trash2 size={14} />
+            {pending ? 'Deleting…' : 'Delete profile'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+/** One address pool, under a caption naming the side it emulates. */
 function PoolEditor({
   label,
   pool,
@@ -471,43 +516,39 @@ function PoolEditor({
   hint?: string;
 }) {
   return (
-    <div className="field-grid">
-      <label className="field">
-        <span className="field-label">{label} — address block</span>
-        <input
-          className="input"
-          style={{ fontFamily: 'var(--qz-font-mono)' }}
-          value={pool.cidr}
-          aria-invalid={Boolean(error)}
-          onChange={(e) => onChange({ ...pool, cidr: e.target.value })}
-        />
-        {error ? <span className="field-error">{error}</span> : null}
-        {!error && hint ? (
-          <span className="muted" style={{ fontSize: 11.5 }}>
-            {hint}
-          </span>
-        ) : null}
-      </label>
+    <div className="stack gap-8">
+      <h4 className="field-label">{label}</h4>
+      <div className="field-grid">
+        <label className="field">
+          <span className="field-label">Address block</span>
+          <input
+            className="input input-mono"
+            value={pool.cidr}
+            aria-invalid={Boolean(error)}
+            onChange={(e) => onChange({ ...pool, cidr: e.target.value })}
+          />
+          {error ? <span className="field-error">{error}</span> : null}
+          {!error && hint ? <span className="field-hint">{hint}</span> : null}
+        </label>
 
-      <label className="field">
-        <span className="field-label">Lowest port</span>
-        <input
-          className="input"
-          style={{ fontFamily: 'var(--qz-font-mono)' }}
-          value={pool.portMin}
-          onChange={(e) => onChange({ ...pool, portMin: Number(e.target.value) || 0 })}
-        />
-      </label>
+        <label className="field">
+          <span className="field-label">Lowest port</span>
+          <input
+            className="input input-mono"
+            value={pool.portMin}
+            onChange={(e) => onChange({ ...pool, portMin: Number(e.target.value) || 0 })}
+          />
+        </label>
 
-      <label className="field">
-        <span className="field-label">Highest port</span>
-        <input
-          className="input"
-          style={{ fontFamily: 'var(--qz-font-mono)' }}
-          value={pool.portMax}
-          onChange={(e) => onChange({ ...pool, portMax: Number(e.target.value) || 0 })}
-        />
-      </label>
+        <label className="field">
+          <span className="field-label">Highest port</span>
+          <input
+            className="input input-mono"
+            value={pool.portMax}
+            onChange={(e) => onChange({ ...pool, portMax: Number(e.target.value) || 0 })}
+          />
+        </label>
+      </div>
     </div>
   );
 }
@@ -548,8 +589,7 @@ function AppEditor({
           <label className="field">
             <span className="field-label">Path</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={app.path}
               aria-invalid={Boolean(errors['config.app.path'])}
               onChange={(e) => onChange({ ...app, path: e.target.value })}
@@ -561,8 +601,7 @@ function AppEditor({
           <label className="field">
             <span className="field-label">Response body (bytes)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={app.responseBytes}
               onChange={(e) => onChange({ ...app, responseBytes: Number(e.target.value) || 0 })}
             />
@@ -575,8 +614,7 @@ function AppEditor({
           <label className="field">
             <span className="field-label">Request (bytes)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={app.requestBytes}
               onChange={(e) => onChange({ ...app, requestBytes: Number(e.target.value) || 0 })}
             />
@@ -584,8 +622,7 @@ function AppEditor({
           <label className="field">
             <span className="field-label">Response (bytes)</span>
             <input
-              className="input"
-              style={{ fontFamily: 'var(--qz-font-mono)' }}
+              className="input input-mono"
               value={app.responseBytes}
               onChange={(e) => onChange({ ...app, responseBytes: Number(e.target.value) || 0 })}
             />
@@ -597,13 +634,12 @@ function AppEditor({
         <label className="field" style={{ gridColumn: '1 / -1' }}>
           <span className="field-label">Capture name</span>
           <input
-            className="input"
-            style={{ fontFamily: 'var(--qz-font-mono)' }}
+            className="input input-mono"
             value={app.pcapRef}
             aria-invalid={Boolean(errors['config.app.pcapRef'])}
             onChange={(e) => onChange({ type: 'pcap', pcapRef: e.target.value })}
           />
-          <span className="muted" style={{ fontSize: 11.5 }}>
+          <span className="field-hint">
             Replay is not implemented in this build; a run using it is refused by name rather
             than quietly substituting a synthetic exchange.
           </span>
@@ -613,38 +649,38 @@ function AppEditor({
   );
 }
 
-/** The computed summary bar. */
+/** The computed summary bar, on the shared chassis. */
 function ProfileSummary({ preview }: { preview: ProfilePreview | null }) {
   if (!preview) {
-    return (
-      <div className="summary-bar">
-        <Skeleton height={16} width={360} />
-      </div>
-    );
+    return <SummaryBar loading />;
   }
 
-  return (
-    <div className="summary-bar">
-      <div className="row gap-14" style={{ flexWrap: 'wrap' }}>
-        <span className="mono" style={{ color: 'var(--qz-fg-1)', fontSize: 13 }}>
-          {preview.summary}
-        </span>
-        {preview.exceedsLineRate ? (
-          <Badge tone="crit">exceeds the client port</Badge>
-        ) : preview.clientPortSpeedMbps > 0 ? (
-          <Badge tone="ok">
-            {((preview.impliedBps / (preview.clientPortSpeedMbps * 1e6)) * 100).toFixed(1)}% of line
-          </Badge>
-        ) : (
-          <Badge tone="muted">port speed unknown</Badge>
-        )}
-      </div>
+  // The preview does not carry a resolved percentage the way a flow's does,
+  // so it is derived here; the badge tones come from the shared rule.
+  const badge = preview.exceedsLineRate ? (
+    <Badge tone="crit">exceeds the client port</Badge>
+  ) : preview.clientPortSpeedMbps > 0 ? undefined : (
+    <Badge tone="muted">port speed unknown</Badge>
+  );
 
-      <div className="row gap-14 mono" style={{ fontSize: 11.5, color: 'var(--qz-fg-4)' }}>
-        <span>{formatBitrate(preview.impliedBps)}</span>
-        <span>{formatCount(preview.clientCapacity)} client tuples</span>
-        <span>measure after {formatDuration(preview.measurementStartsAt)}</span>
-      </div>
-    </div>
+  return (
+    <SummaryBar
+      items={[
+        {
+          value: preview.summary,
+          meta: (
+            <>
+              <span>{formatBitrate(preview.impliedBps)}</span>
+              <span>{formatCount(preview.clientCapacity)} client tuples</span>
+              <span>measure after {formatDuration(preview.measurementStartsAt)}</span>
+            </>
+          ),
+        },
+      ]}
+      linePct={
+        badge ? undefined : (preview.impliedBps / (preview.clientPortSpeedMbps * 1e6)) * 100
+      }
+      badge={badge}
+    />
   );
 }

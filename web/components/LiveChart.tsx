@@ -4,32 +4,24 @@
  * A uPlot time-series chart fed directly from the statistics stream.
  *
  * The chart owns its own data arrays and calls `setData` itself. React renders
- * the container once and then stays out of the way — at one hertz with several
- * charts on screen, going through React state for every sample would spend the
- * frame budget on reconciliation rather than on drawing.
+ * the container (and, until the first sample, a quiet placeholder) and then
+ * stays out of the way — at one hertz with several charts on screen, going
+ * through React state for every sample would spend the frame budget on
+ * reconciliation rather than on drawing.
  *
  * uPlot wants columnar data: `[timestamps, series0, series1, …]`, each the same
  * length. The arrays here are mutated in place and sliced to the window.
  */
 
 import uPlot from 'uplot';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { StatsBatch } from '@/lib/api-types';
+import { CHART_HEIGHT, SERIES_COLOURS, baseOptions, seriesFill } from '@/lib/chart-theme';
 import type { StatsStream } from '@/lib/stream';
 
 /** How many points to keep on screen. Ten minutes at one hertz. */
 const WINDOW = 600;
-
-/**
- * The accent-derived series palette.
- *
- * Quartz green leads because it is the brand accent and the first series is
- * usually the one being watched. The rest are chosen to stay distinguishable
- * against the dark surface and from each other for the common forms of colour
- * blindness — hue alone is not enough, so they also differ in lightness.
- */
-const SERIES_COLOURS = ['#00d992', '#4fb3ff', '#f5b243', '#ff5d6c', '#b39dff', '#5ad1c8'];
 
 /** One line on the chart. */
 export interface ChartSeries {
@@ -49,14 +41,19 @@ export interface LiveChartProps {
   unit: string;
   /** Formats a Y value for the axis and cursor. */
   format: (value: number) => string;
-  /** Chart height in pixels. */
+  /** Chart height in pixels. Defaults to the shared {@link CHART_HEIGHT}. */
   height?: number;
 }
 
 /** Renders a live-updating line chart. */
-export function LiveChart({ stream, series, unit, format, height = 200 }: LiveChartProps) {
+export function LiveChart({ stream, series, unit, format, height = CHART_HEIGHT }: LiveChartProps) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<uPlot | null>(null);
+
+  // Whether the quiet placeholder still shows. This is the one piece of React
+  // state here: it changes at most once per mount (empty → drawing), so it
+  // does not drag rendering back through React at the stream's cadence.
+  const [waiting, setWaiting] = useState(() => stream.buffer.current.length === 0);
 
   // Column-oriented, matching uPlot's expected shape: index 0 is time.
   const data = useRef<number[][]>([]);
@@ -75,42 +72,25 @@ export function LiveChart({ stream, series, unit, format, height = 200 }: LiveCh
     const build = (width: number) =>
       new uPlot(
         {
-          width,
-          height,
-          // The page already has a heading for each chart; a second title
-          // inside the plot area would only cost vertical space.
-          title: '',
-          cursor: { drag: { x: true, y: false, setScale: false } },
-          legend: { show: true, live: true },
-          scales: { x: { time: true } },
-          axes: [
-            {
-              stroke: '#6b6f7a',
-              grid: { stroke: '#1c1f28', width: 1 },
-              ticks: { stroke: '#252830' },
-              font: '11px "JetBrains Mono", ui-monospace, monospace',
-            },
-            {
-              stroke: '#6b6f7a',
-              grid: { stroke: '#1c1f28', width: 1 },
-              ticks: { stroke: '#252830' },
-              font: '11px "JetBrains Mono", ui-monospace, monospace',
-              label: config.current.unit,
-              labelSize: 30,
-              labelFont: '11px "JetBrains Mono", ui-monospace, monospace',
-              size: 64,
-              values: (_self, splits) => splits.map((v) => config.current.format(v)),
-            },
-          ],
+          ...baseOptions({
+            width,
+            height,
+            unit: config.current.unit,
+            format: (v) => config.current.format(v),
+            // Off for live charts: the next sample's setData would snap a
+            // drag-zoom straight back out (see BaseOptionsArgs).
+            setScale: false,
+          }),
           series: [
             { label: 'time' },
             ...config.current.series.map((s, i) => ({
               label: s.label,
               stroke: SERIES_COLOURS[i % SERIES_COLOURS.length],
               width: 1.5,
-              // A translucent fill under the first series gives the eye
-              // something to follow without obscuring the ones behind it.
-              fill: i === 0 ? 'rgba(0, 217, 146, 0.08)' : undefined,
+              // Every series carries a translucent fill of its own colour,
+              // matching Lumen's LiveGraph, so overlapping areas still read
+              // by hue.
+              fill: seriesFill(i),
               value: (_self: uPlot, v: number | null) =>
                 v === null ? '—' : config.current.format(v),
             })),
@@ -138,10 +118,13 @@ export function LiveChart({ stream, series, unit, format, height = 200 }: LiveCh
       push(data.current, batch, config.current.series);
     }
     chart.current.setData(data.current as unknown as uPlot.AlignedData);
+    setWaiting((data.current[0]?.length ?? 0) === 0);
 
     const unsubscribe = stream.subscribe((batch) => {
       push(data.current, batch, config.current.series);
       chart.current?.setData(data.current as unknown as uPlot.AlignedData);
+      // A no-op after the first sample; React bails out on identical state.
+      setWaiting(false);
     });
 
     return () => {
@@ -155,7 +138,31 @@ export function LiveChart({ stream, series, unit, format, height = 200 }: LiveCh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stream, height]);
 
-  return <div ref={container} className="live-chart" />;
+  return (
+    <div
+      ref={container}
+      className="live-chart"
+      // The plot's height is reserved before the first sample arrives so the
+      // panel does not jump when the chart starts drawing. min-height rather
+      // than height because uPlot appends its legend below the plot.
+      style={{ position: 'relative', minHeight: height }}
+    >
+      {waiting ? (
+        <div
+          className="muted"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'grid',
+            placeItems: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          Waiting for samples…
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /**
