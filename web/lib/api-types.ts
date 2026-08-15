@@ -188,6 +188,19 @@ export const portGroupSchema = z.object({
 });
 export type PortGroup = z.infer<typeof portGroupSchema>;
 
+/**
+ * `fluxd::api::port_groups::PortGroupInput`
+ *
+ * `trexCfg` is deliberately absent: the server defaults it, and the UI has no
+ * business inventing engine instance settings it does not surface.
+ */
+export interface PortGroupInput {
+  name: string;
+  engineMode: EngineMode;
+  /** Member ports, in the order they should be numbered by the engine. */
+  portIds: string[];
+}
+
 // ---------------------------------------------------------------------------
 // System — fluxd::api::system
 // ---------------------------------------------------------------------------

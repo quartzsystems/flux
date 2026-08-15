@@ -528,7 +528,11 @@ rollback() {
 
 prune_backups() {
     local -a old=()
-    mapfile -t old < <(ls -1dt "$BACKUP_ROOT"/*/ 2>/dev/null | tail -n +$((BACKUPS_KEPT + 1)))
+    # The `|| true` guards the whole pipeline: on a fresh install the glob
+    # matches nothing, `ls` fails, and under pipefail the ERR trap would report
+    # a spurious failure from the subshell even though "no backups yet" is the
+    # expected case.
+    mapfile -t old < <(ls -1dt "$BACKUP_ROOT"/*/ 2>/dev/null | tail -n +$((BACKUPS_KEPT + 1)) || true)
     ((${#old[@]} == 0)) && return 0
 
     info "pruning ${#old[@]} backup(s) older than the last $BACKUPS_KEPT"
@@ -807,19 +811,29 @@ install_victoria_metrics() {
     esac
 
     step "Installing VictoriaMetrics"
-    local url tag
-    url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-        https://github.com/VictoriaMetrics/VictoriaMetrics/releases/latest 2>/dev/null)" || true
-    tag="${url##*/}"
+    # Not `releases/latest`: that can point at an enterprise-only or LTS patch
+    # release carrying no community build at all (v1.148.1 shipped nothing but
+    # `-enterprise` archives, and following it 404ed). Scan the recent releases
+    # for the newest tag that actually has the single-node community asset —
+    # the version pattern right before `.tar.gz` excludes the `-cluster` and
+    # `-enterprise` variants and the checksum files.
+    local releases download
+    releases="$(curl -fsSL --retry 3 \
+        "https://api.github.com/repos/VictoriaMetrics/VictoriaMetrics/releases?per_page=30" \
+        2>/dev/null)" || releases=""
+    download="$(printf '%s\n' "$releases" \
+        | grep -Eo "https://[^\"[:space:]]*/releases/download/v[0-9.]+/victoria-metrics-linux-${vm_arch}-v[0-9.]+\.tar\.gz" \
+        | sort -t/ -k8 -V | tail -n1)" || true
 
-    if [[ -z $tag || $tag == "latest" || $tag == "releases" ]]; then
-        warn "could not determine the latest VictoriaMetrics release; skipping it"
+    if [[ -z $download ]]; then
+        warn "could not find a downloadable VictoriaMetrics community build; skipping it"
         warn "analytics stays empty until one is serving on FLUX_VM_URL"
         return 0
     fi
 
-    local asset="victoria-metrics-linux-${vm_arch}-${tag}.tar.gz"
-    local download="https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/${tag}/${asset}"
+    local tag asset
+    tag="$(basename "$(dirname "$download")")"
+    asset="$(basename "$download")"
 
     if ! curl -fsSL --retry 3 -o "$STAGE/$asset" "$download"; then
         warn "could not download $download; skipping VictoriaMetrics"
@@ -990,6 +1004,17 @@ do_uninstall() {
 
 # --- Summary ----------------------------------------------------------------
 
+# The generated first-administrator password, scraped back out of the journal.
+#
+# fluxd prints it exactly once, on the first start with an empty users table,
+# so an operator should not have to know the right journalctl incantation to
+# see it. An upgrade or a restart prints nothing and this returns empty.
+bootstrap_password() {
+    have_systemd || return 0
+    journalctl -u fluxd --no-pager 2>/dev/null \
+        | sed -n 's/.*password: \([^[:space:]]*\).*/\1/p' | tail -n1 || true
+}
+
 print_summary() {
     printf '\n'
     step "Flux $TARGET_VERSION is installed"
@@ -1013,7 +1038,25 @@ print_summary() {
 
     $FRESH_CONFIG || info "kept the configuration already in $SYSCONF"
 
-    cat <<EOF
+    local admin_password
+    admin_password="$(bootstrap_password)"
+
+    if [[ -n $admin_password ]]; then
+        cat <<EOF
+
+  Open  http://$(appliance_host):$(http_port)/
+
+  Sign in with the account fluxd created on this first start:
+
+      username: admin
+      password: $admin_password
+
+  This is the only place it is shown besides the journal. Change it after
+  signing in.
+
+EOF
+    else
+        cat <<EOF
 
   Open  http://$(appliance_host):$(http_port)/
 
@@ -1023,6 +1066,7 @@ print_summary() {
       journalctl -u fluxd | grep -A4 'first administrator'
 
 EOF
+    fi
 
     if [[ $ENGINE == trex ]]; then
         cat <<EOF

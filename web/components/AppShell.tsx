@@ -15,20 +15,25 @@
 import {
   Activity,
   ChartLine,
+  ChevronDown,
+  ChevronRight,
   EthernetPort,
   Gauge,
   History,
+  Layers,
   LayoutDashboard,
   LogOut,
   Network,
+  Play,
   Route,
   Settings,
+  SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { FluxMark } from '@/components/Brand';
 import { Skeleton } from '@/components/ui';
@@ -36,8 +41,8 @@ import { api, queryKeys } from '@/lib/api';
 import { useAuth, useRequireAuth } from '@/lib/auth';
 import { type Role } from '@/lib/api-types';
 
-/** One entry in the sidebar. */
-interface NavItem {
+/** A leaf destination in the sidebar. */
+interface NavChild {
   href: string;
   label: string;
   icon: LucideIcon;
@@ -45,10 +50,17 @@ interface NavItem {
   minRole?: Role;
 }
 
-/** One titled block of navigation. */
-interface NavSection {
-  title: string;
-  items: NavItem[];
+/**
+ * A top-level entry. Entries with `children` render as an expandable section,
+ * exactly the shape Lumen's sidebar uses; entries without are plain links.
+ */
+interface NavItem {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  href?: string;
+  minRole?: Role;
+  children?: NavChild[];
 }
 
 /**
@@ -57,32 +69,31 @@ interface NavSection {
  * Grouped by what an operator is doing rather than by which subsystem owns the
  * page: wire it up, then run it.
  */
-const NAV: NavSection[] = [
+const NAV: NavItem[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, href: '/' },
   {
-    title: 'Overview',
-    items: [{ href: '/', label: 'Dashboard', icon: LayoutDashboard }],
-  },
-  {
-    title: 'Configure',
-    items: [
+    id: 'configure',
+    label: 'Configure',
+    icon: SlidersHorizontal,
+    children: [
       { href: '/ports', label: 'Ports', icon: EthernetPort },
+      { href: '/groups', label: 'Port Groups', icon: Layers },
       { href: '/topology', label: 'Topology', icon: Network },
       { href: '/flows', label: 'Flows', icon: Route },
-      { href: '/profiles', label: 'Load profiles', icon: Gauge },
+      { href: '/profiles', label: 'Load Profiles', icon: Gauge },
     ],
   },
   {
-    title: 'Execute',
-    items: [
+    id: 'execute',
+    label: 'Execute',
+    icon: Play,
+    children: [
       { href: '/tests', label: 'Tests', icon: Activity },
       { href: '/runs', label: 'Runs', icon: History },
       { href: '/analytics', label: 'Analytics', icon: ChartLine },
     ],
   },
-  {
-    title: 'System',
-    items: [{ href: '/settings', label: 'Settings', icon: Settings, minRole: 'admin' }],
-  },
+  { id: 'settings', label: 'Settings', icon: Settings, href: '/settings', minRole: 'admin' },
 ];
 
 /** The nav row, in the exact class string Lumen and Quartz Command use. */
@@ -168,6 +179,13 @@ function Sidebar() {
   const pathname = usePathname();
   const { can, user, logout } = useAuth();
 
+  // Expandable sections: open when explicitly toggled, else default-open on
+  // the active subtree — the same rule Lumen's sidebar applies.
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
+  const isOpen = (item: NavItem) =>
+    openMenus[item.id] ??
+    (item.children ?? []).some((child) => isActive(pathname, child.href));
+
   return (
     <aside
       className="flex flex-col h-full"
@@ -188,38 +206,67 @@ function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 min-h-0 overflow-auto px-3 pt-3 pb-4 flex flex-col gap-[2px]">
-        {NAV.map((section) => {
-          const visible = section.items.filter((item) => !item.minRole || can(item.minRole));
-          if (visible.length === 0) return null;
+        {NAV.map((item) => {
+          if (item.minRole && !can(item.minRole)) return null;
+          const Icon = item.icon;
 
-          return (
-            <div key={section.title} className="flex flex-col gap-[2px]">
-              <div
-                className="text-[11px] font-semibold uppercase px-[10px] pt-[14px] pb-[4px] first:pt-0"
-                style={{
-                  color: 'var(--qz-fg-4)',
-                  fontFamily: 'var(--qz-font-mono)',
-                  letterSpacing: '0.08em',
-                }}
-              >
-                {section.title}
+          if (item.children) {
+            const visible = item.children.filter((c) => !c.minRole || can(c.minRole));
+            if (visible.length === 0) return null;
+            const open = isOpen(item);
+
+            // The parent never shows the green "active" state — only its
+            // children light up.
+            return (
+              <div key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => setOpenMenus((p) => ({ ...p, [item.id]: !open }))}
+                  className={itemClass(false)}
+                >
+                  <Icon size={16} />
+                  <span className="flex-1">{item.label}</span>
+                  {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+                {open ? (
+                  <div className="flex flex-col gap-[2px] mt-[2px] ml-[26px]">
+                    {visible.map((child) => {
+                      const ChildIcon = child.icon;
+                      const active = isActive(pathname, child.href);
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          className={[
+                            'flex items-center gap-[9px] px-[10px] py-[7px] rounded-md text-[13px] font-medium border transition-all duration-[120ms] no-underline',
+                            active
+                              ? 'bg-[var(--qz-accent-soft)] text-[var(--qz-accent)] border-[color-mix(in_oklab,var(--qz-accent)_30%,transparent)]'
+                              : 'text-[var(--qz-fg-3)] border-transparent hover:text-[var(--qz-fg-1)] hover:bg-[color-mix(in_oklab,white_4%,transparent)]',
+                          ].join(' ')}
+                          aria-current={active ? 'page' : undefined}
+                        >
+                          <ChildIcon size={15} />
+                          <span>{child.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
-              {visible.map((item) => {
-                const Icon = item.icon;
-                const active = isActive(pathname, item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={itemClass(active)}
-                    aria-current={active ? 'page' : undefined}
-                  >
-                    <Icon size={16} />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+            );
+          }
+
+          const active = isActive(pathname, item.href ?? '');
+          return (
+            <Link
+              key={item.id}
+              href={item.href ?? '/'}
+              className={itemClass(active)}
+              aria-current={active ? 'page' : undefined}
+            >
+              <Icon size={16} />
+              <span>{item.label}</span>
+            </Link>
           );
         })}
         <DaemonVersion />

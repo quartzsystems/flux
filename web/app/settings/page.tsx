@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Settings: users, engines, TLS, retention, and configuration transfer.
+ * Settings: users, TLS, retention, and configuration transfer.
  *
  * Admin-only. The whole page is behind the role check rather than individual
  * controls, because nothing on it is meaningful to read without the ability to
@@ -12,8 +12,6 @@
 import {
   Download,
   Lock,
-  Play,
-  Square,
   Plus,
   Trash2,
   Upload,
@@ -25,10 +23,8 @@ import { AppShell } from '@/components/AppShell';
 import { FluxLockup, TAGLINE } from '@/components/Brand';
 import {
   Alert,
-  Badge,
   Dash,
   EmptyRow,
-  GroupStateBadge,
   Page,
   PageBody,
   PageHeader,
@@ -51,7 +47,6 @@ import {
   retentionSettingSchema,
   tlsSettingSchema,
   type ImportSummary,
-  type PortGroup,
   type Role,
   type User,
 } from '@/lib/api-types';
@@ -88,7 +83,6 @@ function Settings() {
         <Tabs
           items={[
             { value: 'users', label: 'Users' },
-            { value: 'groups', label: 'Port groups' },
             { value: 'tls', label: 'TLS' },
             { value: 'appliance', label: 'Appliance' },
             { value: 'system', label: 'System' },
@@ -98,7 +92,6 @@ function Settings() {
         />
 
         {tab === 'users' ? <UsersPanel /> : null}
-        {tab === 'groups' ? <PortGroupsPanel /> : null}
         {tab === 'tls' ? <TlsPanel /> : null}
         {tab === 'appliance' ? <AppliancePanel /> : null}
         {tab === 'system' ? (
@@ -418,159 +411,6 @@ function DeleteUserDialog({
         </div>
       </div>
     </ModalShell>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Port groups
-// ---------------------------------------------------------------------------
-
-/**
- * Engine lifecycle.
- *
- * A group's engine is normally brought up on demand when a run starts, but an
- * operator who has just rebound a NIC wants to know the engine comes back
- * before committing a test to it.
- */
-function PortGroupsPanel() {
-  const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
-
-  const groups = useQuery({
-    queryKey: queryKeys.portGroups,
-    queryFn: ({ signal }) => api.portGroups.list(signal),
-    // Bring-up is not instant; poll only while something is mid-transition.
-    refetchInterval: (query) =>
-      (query.state.data ?? []).some((g) => g.state === 'starting') ? 2_000 : false,
-  });
-
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.portGroups });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.ports });
-  };
-
-  const start = useMutation({
-    mutationFn: (id: string) => api.portGroups.start(id),
-    onSuccess: invalidate,
-    onError: (e) => setError(describe(e)),
-  });
-
-  const stop = useMutation({
-    mutationFn: (id: string) => api.portGroups.stop(id),
-    onSuccess: invalidate,
-    onError: (e) => setError(describe(e)),
-  });
-
-  const rows = groups.data ?? [];
-  const busy = start.isPending || stop.isPending;
-
-  return (
-    <>
-      {error ? <Alert tone="danger">{error}</Alert> : null}
-
-      <Surface title="Port groups" padded={false}>
-        <div className="qz-table-wrap">
-          <table className="qz-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Mode</th>
-                <th>State</th>
-                <th className="num">Ports</th>
-                <th>Detail</th>
-                <th className="right">Engine</th>
-              </tr>
-            </thead>
-            {groups.isLoading ? (
-              <TableSkeleton columns={6} rows={2} />
-            ) : (
-              <tbody>
-                {rows.length === 0 ? (
-                  <EmptyRow columns={6}>
-                    No port groups. Create one from the ports page to give an engine something to
-                    drive.
-                  </EmptyRow>
-                ) : (
-                  rows.map((group) => (
-                    <PortGroupRow
-                      key={group.id}
-                      group={group}
-                      busy={busy}
-                      onStart={() => {
-                        setError(null);
-                        start.mutate(group.id);
-                      }}
-                      onStop={() => {
-                        setError(null);
-                        stop.mutate(group.id);
-                      }}
-                    />
-                  ))
-                )}
-              </tbody>
-            )}
-          </table>
-        </div>
-      </Surface>
-    </>
-  );
-}
-
-/** One port group row. */
-function PortGroupRow({
-  group,
-  busy,
-  onStart,
-  onStop,
-}: {
-  group: PortGroup;
-  busy: boolean;
-  onStart: () => void;
-  onStop: () => void;
-}) {
-  const up = group.state === 'ready' || group.state === 'starting';
-  const empty = group.portIds.length === 0;
-
-  return (
-    <tr>
-      <td className="mono">{group.name}</td>
-      <td>
-        <Badge tone={group.engineMode === 'astf' ? 'info' : 'muted'}>{group.engineMode}</Badge>
-      </td>
-      <td>
-        <GroupStateBadge state={group.state} />
-      </td>
-      <td className="num">{group.portIds.length}</td>
-      <td className="dim" style={{ maxWidth: 320 }}>
-        {group.error ?? <Dash />}
-      </td>
-      <td>
-        <div className="row gap-6 end">
-          {up ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={busy}
-              onClick={onStop}
-            >
-              <Square size={13} />
-              Stop
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={busy || empty}
-              title={empty ? 'This group has no member ports' : 'Bring the engine up'}
-              onClick={onStart}
-            >
-              <Play size={13} />
-              Start
-            </button>
-          )}
-        </div>
-      </td>
-    </tr>
   );
 }
 

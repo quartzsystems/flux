@@ -380,6 +380,112 @@ a {
   font-size: 13px;
 }
 
+/* ---------- DataTable (ported from Lumen / QuartzFire) ---------- */
+
+/* Row selection, as Lumen draws it: the class the DataTable sets, on the cells
+   so the sticky actions cell can restate it with an opaque fill. */
+.qz-table tbody tr.selected,
+.qz-table tbody tr.selected td {
+  background: var(--qz-accent-soft);
+}
+
+/* The actions cell rides the right edge of the scroll box instead of
+   scrolling away with the columns, so acting on a row of a wide table never
+   begins with a sideways scroll. It needs its own opaque fill to pass
+   scrolled cells underneath; a table mounted on something other than a
+   surface says so with --qz-table-bg. */
+.qz-table th.qz-sticky-actions,
+.qz-table td.qz-sticky-actions {
+  position: sticky;
+  right: 0;
+}
+.qz-table th.qz-sticky-actions {
+  z-index: 2;
+}
+.qz-table td.qz-sticky-actions {
+  background: var(--qz-table-bg, var(--qz-surface));
+}
+.qz-table tbody tr:hover td.qz-sticky-actions {
+  background: color-mix(in oklab, #ffffff 4%, var(--qz-table-bg, var(--qz-surface)));
+}
+.qz-table tbody tr.selected td.qz-sticky-actions {
+  background: var(--qz-accent-soft);
+}
+
+/* Draggable column-width handle at a header-cell boundary. The ::after line is
+   the always-visible "|" affordance; the span itself is a wider hit target. */
+.qz-col-resize {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 11px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+  user-select: none;
+  touch-action: none;
+}
+.qz-col-resize::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 55%;
+  width: 1px;
+  background: var(--qz-border-strong);
+  transition: background 0.12s ease, width 0.12s ease;
+}
+.qz-col-resize:hover::after,
+.qz-col-resize.active::after {
+  left: 4.5px;
+  width: 2px;
+  background: var(--qz-accent);
+}
+
+/* The dark checkbox, shared verbatim with Lumen. `.qz-check` is the box
+   itself and belongs on the `input`. */
+.qz-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1px solid var(--qz-border-strong);
+  border-radius: 4px;
+  background: var(--qz-input-bg);
+  cursor: pointer;
+  position: relative;
+  transition: background 120ms, border-color 120ms;
+  vertical-align: middle;
+}
+.qz-check:hover { border-color: var(--qz-fg-4); }
+.qz-check:checked,
+.qz-check:indeterminate {
+  background: var(--qz-check-accent, var(--qz-accent));
+  border-color: var(--qz-check-accent, var(--qz-accent));
+}
+.qz-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--qz-fg-on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.qz-check:indeterminate::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 7px;
+  height: 2px;
+  background: var(--qz-fg-on-accent);
+}
+
 /* ===========================================================================
    Badges
    =========================================================================== */
@@ -769,19 +875,6 @@ input[type='checkbox'] {
    Flow editor
    =========================================================================== */
 
-.flow-layout {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 14px;
-  align-items: start;
-}
-
-@media (max-width: 1100px) {
-  .flow-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* A form grid that keeps labels aligned without every field being full width.
    Address fields need ~24 characters, so 220px is the smallest column that
    does not truncate one. */
@@ -1006,6 +1099,40 @@ input[type='checkbox'] {
   background: color-mix(in oklab, #ffffff 5%, transparent);
 }
 
+/* A caption over a group of items — Lumen's `.menu-label`. */
+.menu-label {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--qz-fg-4);
+}
+
+/* A single-line item holding a control and its caption side by side, the shape
+   the DataTable's columns menu uses; the block `.menu-item` stays for the
+   two-line title/description entries. */
+.menu-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* A row that is about the menu rather than about the data in it — "Reset
+   layout" under the column list. */
+.menu-item-quiet { color: var(--qz-fg-3); }
+
+.menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menu-separator {
+  margin: 4px 10px;
+  border-top: 1px solid var(--qz-divider);
+}
+
 .menu-item strong {
   display: block;
   font-size: 13px;
@@ -1220,19 +1347,30 @@ input[type='checkbox'] {
   background: var(--qz-ink-0);
 }
 
-.react-flow__controls {
-  box-shadow: none;
+/* React Flow's own chrome (the zoom controls) is themed through the variables
+   its stylesheet reads, not by overriding its selectors — the library sheet
+   loads after this one, so a plain override loses and the buttons come out in
+   the light-page defaults. */
+.react-flow {
+  --xy-controls-button-background-color: var(--qz-surface);
+  --xy-controls-button-background-color-hover: var(--qz-surface-raised);
+  --xy-controls-button-border-color: var(--qz-border);
+  --xy-controls-button-color: var(--qz-fg-3);
+  --xy-controls-button-color-hover: var(--qz-fg-1);
+  --xy-controls-box-shadow: none;
 }
 
-.react-flow__controls-button {
-  background: var(--qz-surface);
-  border-bottom: 1px solid var(--qz-border);
-  color: var(--qz-fg-3);
-  fill: currentcolor;
-}
-
-.react-flow__controls-button:hover {
-  background: var(--qz-surface-2);
+/* A flow's name or live rate, drawn over the wire by the custom edge. */
+.topo-edge-label {
+  position: absolute;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: var(--qz-font-mono);
+  font-size: 10.5px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--qz-ink-2) 92%, transparent);
+  border: 1px solid var(--qz-border-subtle);
 }
 
 .react-flow__edge-path {

@@ -37,6 +37,7 @@ import {
   type FlowInput,
   type HugepageSize,
   type LoginRequest,
+  type PortGroupInput,
   type PortUpdate,
   type ProfileInput,
   type ReserveRequest,
@@ -432,6 +433,17 @@ export const api = {
     /** Every port group with its membership. */
     list: (signal?: AbortSignal) =>
       request('/port-groups', { schema: z.array(portGroupSchema), signal }),
+
+    /** Creates a group and assigns its members. Admin only. */
+    create: (body: PortGroupInput) =>
+      request('/port-groups', { method: 'POST', body, schema: portGroupSchema }),
+
+    /** Replaces a group's definition and membership. Admin only. */
+    update: (id: string, body: PortGroupInput) =>
+      request(`/port-groups/${id}`, { method: 'PUT', body, schema: portGroupSchema }),
+
+    /** Deletes a group, leaving its ports ungrouped. Admin only. */
+    remove: (id: string) => request(`/port-groups/${id}`, { method: 'DELETE' }),
 
     /** Brings up the engine for a group. */
     start: (id: string) =>

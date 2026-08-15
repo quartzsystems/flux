@@ -23,12 +23,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   MarkerType,
   Position,
   ReactFlow,
+  getBezierPath,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -152,6 +156,7 @@ function Topology() {
                 nodes={nodes}
                 edges={edges}
                 nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
                 fitView
                 fitViewOptions={{ padding: 0.18 }}
                 minZoom={0.3}
@@ -373,20 +378,18 @@ function build(
 
       return {
         id: link.id,
+        type: 'flow',
         source: link.txPort,
         target: link.rxPort,
-        label: sample ? `${formatPps(sample.rxPps)} · ${sample.lossPct.toFixed(2)}%` : link.name,
         animated: sample !== undefined && sample.txPps > 0,
         markerEnd: { type: MarkerType.ArrowClosed, color: lossy ? '#ff5d6c' : '#00d992' },
         style: { stroke: lossy ? '#ff5d6c' : '#00d992', strokeWidth: 1.6 },
-        labelStyle: {
-          fill: lossy ? '#ff5d6c' : '#d7d9de',
-          fontFamily: 'var(--qz-font-mono)',
-          fontSize: 10.5,
+        data: {
+          label: sample
+            ? `${formatPps(sample.rxPps)} · ${sample.lossPct.toFixed(2)}%`
+            : link.name,
+          lossy,
         },
-        labelBgStyle: { fill: '#161920', fillOpacity: 0.92 },
-        labelBgPadding: [5, 3] as [number, number],
-        labelBgBorderRadius: 4,
       };
     });
 
@@ -448,6 +451,67 @@ function DutNode({ data }: NodeProps) {
 }
 
 const NODE_TYPES = { port: PortNode, dut: DutNode };
+
+/**
+ * A flow between two ports.
+ *
+ * A custom edge only because of where the label goes. The default edge writes
+ * its label at the midpoint of the path — which in this diagram is exactly
+ * where the device-under-test node sits, so every flow name was printed on top
+ * of the DUT box. Drawing the label part-way along the run keeps it over the
+ * wire instead.
+ */
+function FlowEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  style,
+  data,
+}: EdgeProps) {
+  const [path] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const { label, lossy } = (data ?? {}) as { label?: string; lossy?: boolean };
+
+  // 28% along the straight run: clear of the port node on one side and of the
+  // DUT node in the middle. The common case is a horizontal edge, where the
+  // straight-line point and the bezier point agree.
+  const t = 0.28;
+  const labelX = sourceX + (targetX - sourceX) * t;
+  const labelY = sourceY + (targetY - sourceY) * t;
+
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {label ? (
+        <EdgeLabelRenderer>
+          <div
+            className="topo-edge-label"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              color: lossy ? '#ff5d6c' : 'var(--qz-fg-2)',
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
+}
+
+const EDGE_TYPES = { flow: FlowEdge };
 
 // ---------------------------------------------------------------------------
 // The device under test
