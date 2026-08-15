@@ -139,8 +139,13 @@ async fn stop(
         }
     }
 
+    // Not a conflict when there is nothing to remove: the stored state may
+    // claim an engine this daemon is not running — one that crashed, or one
+    // from before a restart. Stop is the operator's escape hatch out of that
+    // wedge, so it reconciles rather than refusing; every step below is a
+    // no-op when the engine is already gone.
     if state.engines.remove(id).await.is_none() {
-        return Err(ApiError::Conflict("this group has no running engine".into()));
+        tracing::info!("stop requested for a group with no running engine; reconciling its state");
     }
     state.collector.stop(id).await;
     state.mock_controls.write().await.remove(&id);

@@ -93,6 +93,24 @@ pub async fn set_state(
     .await
 }
 
+/// Marks every group that claims a live engine as stopped.
+///
+/// Called once at startup. Engines are processes of this daemon, so a state of
+/// `ready` or `starting` in the database after a restart is a claim about a
+/// process that no longer exists — and a stale `ready` wedges the UI: rebinds
+/// are refused with "stop the group first" while stop refuses because there is
+/// no engine to stop.
+pub async fn sweep_stale_engine_states(pool: &PgPool) -> sqlx::Result<u64> {
+    let result = sqlx::query(
+        "UPDATE port_groups
+         SET state = 'stopped', error = NULL, updated_at = now()
+         WHERE state IN ('ready', 'starting')",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 /// Deletes a group. Member ports fall back to being ungrouped.
 pub async fn delete(pool: &PgPool, id: Id) -> sqlx::Result<bool> {
     // `ports.group_id` is ON DELETE SET NULL, but `group_index` is not, and the

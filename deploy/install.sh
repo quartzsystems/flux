@@ -1003,6 +1003,33 @@ wait_for_health() {
     return 1
 }
 
+# Confirms VictoriaMetrics is actually answering, not merely spawned.
+#
+# Type=simple means "started" the moment the binary execs, so a store that
+# panics opening its data a second later sails through start_services looking
+# healthy — and is only discovered days later as an "unreachable" banner on the
+# analytics page. Optional component, so this warns rather than fails.
+check_metrics_health() {
+    $DO_METRICS || return 0
+    have_systemd || return 0
+    [[ -f /etc/systemd/system/victoria-metrics.service ]] || return 0
+    have curl || return 0
+
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if curl -fsS --max-time 3 http://127.0.0.1:8428/health >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+
+    warn "VictoriaMetrics is not answering on 127.0.0.1:8428, so analytics will read"
+    warn "\"the time series database is unreachable\". Its journal:"
+    journalctl -u victoria-metrics -n 15 --no-pager >&2 || true
+    warn "runs still execute and report; only the historical charts need it"
+    return 0
+}
+
 # --- Uninstall --------------------------------------------------------------
 
 do_uninstall() {
@@ -1185,6 +1212,7 @@ main() {
        the usual causes are DATABASE_URL in $SYSCONF/fluxd.env and the
        allow list in $SYSCONF/portd.yaml."
         fi
+        check_metrics_health
     fi
 
     printf '%s\n' "$TARGET_VERSION" > "$VERSION_STAMP"

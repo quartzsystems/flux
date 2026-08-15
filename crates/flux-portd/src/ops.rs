@@ -293,11 +293,9 @@ mod platform {
 
     /// Reads back the pre-Flux driver for a device, if we recorded one.
     fn recall_original_driver(pci: &PciAddr) -> Option<String> {
-        [ORIGINAL_DRIVERS, LEGACY_ORIGINAL_DRIVERS]
-            .iter()
-            .find_map(|dir| {
-                read_trimmed(Path::new(dir).join(pci.as_str())).filter(|s| !s.is_empty())
-            })
+        [ORIGINAL_DRIVERS, LEGACY_ORIGINAL_DRIVERS].iter().find_map(|dir| {
+            read_trimmed(Path::new(dir).join(pci.as_str())).filter(|s| !s.is_empty())
+        })
     }
 
     /// Runs a command, turning a non-zero exit into an `OpError`.

@@ -76,6 +76,18 @@ async fn main() -> anyhow::Result<()> {
         Err(err) => tracing::error!(%err, "could not sweep interrupted runs"),
     }
 
+    // The same honesty for port groups: their engines were processes of the
+    // previous daemon and did not survive it. A persisted `ready` would refuse
+    // rebinds ("stop the group first") while stop also refused ("no running
+    // engine") — a wedge an operator cannot clear from the UI.
+    match store::port_groups::sweep_stale_engine_states(store.pool()).await {
+        Ok(0) => {}
+        Ok(n) => {
+            tracing::warn!(count = n, "reset port groups whose engines died with the daemon");
+        }
+        Err(err) => tracing::error!(%err, "could not sweep stale port group states"),
+    }
+
     let controller: Arc<dyn PortController> = match config.portd {
         PortdBackend::Mock => Arc::new(MockPortController::new()),
         PortdBackend::Unix => Arc::new(UnixPortdClient::new(&config.portd_socket)),

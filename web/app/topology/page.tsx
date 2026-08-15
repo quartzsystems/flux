@@ -372,25 +372,47 @@ function build(
   const edges: Edge[] = links
     // A flow whose ports have been deleted has nothing to connect.
     .filter((link) => byId.has(link.txPort) && byId.has(link.rxPort))
-    .map((link) => {
+    .flatMap((link) => {
       const sample = live[link.id];
       const lossy = sample !== undefined && sample.lossPct > 0;
+      const colour = lossy ? '#ff5d6c' : '#00d992';
 
-      return {
-        id: link.id,
+      const common = {
         type: 'flow',
-        source: link.txPort,
-        target: link.rxPort,
         animated: sample !== undefined && sample.txPps > 0,
-        markerEnd: { type: MarkerType.ArrowClosed, color: lossy ? '#ff5d6c' : '#00d992' },
-        style: { stroke: lossy ? '#ff5d6c' : '#00d992', strokeWidth: 1.6 },
-        data: {
-          label: sample
-            ? `${formatPps(sample.rxPps)} · ${sample.lossPct.toFixed(2)}%`
-            : link.name,
-          lossy,
-        },
+        markerEnd: { type: MarkerType.ArrowClosed, color: colour },
+        style: { stroke: colour, strokeWidth: 1.6 },
       };
+
+      // Two segments rather than one port-to-port line: every flow crosses the
+      // device, and the picture should show traffic entering and leaving it —
+      // an arrow in and an arrow out — not a line drawn through the box. The
+      // label rides the incoming segment, whose midpoint is over the wire.
+      return [
+        {
+          ...common,
+          id: `${link.id}:in`,
+          source: link.txPort,
+          target: '__dut__',
+          // The DUT's unnamed target handle faces left; `r` faces right.
+          targetHandle: sides.get(link.txPort) === 'right' ? 'r' : undefined,
+          data: {
+            label: sample
+              ? `${formatPps(sample.rxPps)} · ${sample.lossPct.toFixed(2)}%`
+              : link.name,
+            lossy,
+          },
+        },
+        {
+          ...common,
+          id: `${link.id}:out`,
+          source: '__dut__',
+          // The DUT's unnamed source handle faces right; `l` faces left.
+          sourceHandle: sides.get(link.rxPort) === 'left' ? 'l' : undefined,
+          target: link.rxPort,
+          data: { lossy },
+        },
+      ];
     });
 
   // Unattached ports are listed below the canvas rather than drawn on it: an
@@ -453,13 +475,11 @@ function DutNode({ data }: NodeProps) {
 const NODE_TYPES = { port: PortNode, dut: DutNode };
 
 /**
- * A flow between two ports.
+ * One segment of a flow: port into the device, or device out to a port.
  *
- * A custom edge only because of where the label goes. The default edge writes
- * its label at the midpoint of the path — which in this diagram is exactly
- * where the device-under-test node sits, so every flow name was printed on top
- * of the DUT box. Drawing the label part-way along the run keeps it over the
- * wire instead.
+ * A custom edge only because of the label treatment. Flows are drawn as two
+ * segments that terminate at the DUT node, so a segment's midpoint — where the
+ * label goes — is always over the wire and never on top of the box.
  */
 function FlowEdge({
   id,
@@ -473,7 +493,7 @@ function FlowEdge({
   style,
   data,
 }: EdgeProps) {
-  const [path] = getBezierPath({
+  const [path, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -483,13 +503,6 @@ function FlowEdge({
   });
 
   const { label, lossy } = (data ?? {}) as { label?: string; lossy?: boolean };
-
-  // 28% along the straight run: clear of the port node on one side and of the
-  // DUT node in the middle. The common case is a horizontal edge, where the
-  // straight-line point and the bezier point agree.
-  const t = 0.28;
-  const labelX = sourceX + (targetX - sourceX) * t;
-  const labelY = sourceY + (targetY - sourceY) * t;
 
   return (
     <>
