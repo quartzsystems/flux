@@ -19,7 +19,13 @@ RestartSec=5s
 RuntimeDirectory=flux
 RuntimeDirectoryMode=0750
 Group=flux
-StateDirectory=flux
+
+# This helper's own state directory — NOT the shared /var/lib/flux, which
+# belongs to fluxd. Both units used to claim StateDirectory=flux with different
+# User=, so whichever started last owned the directory; systemd ≥ 256 refuses
+# to spawn a service whose state directory is owned by an unexpected user, and
+# the root helper stopped starting the moment fluxd had run once.
+StateDirectory=flux-portd
 
 # --- Hardening ------------------------------------------------------------
 # Root is required, but almost none of root's capabilities are. The helper needs

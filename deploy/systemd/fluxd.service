@@ -8,8 +8,8 @@ Documentation=https://github.com/quartzsystems/flux
 #
 # VictoriaMetrics is only Wants=: losing the time series costs the analytics
 # charts, not the ability to run a test.
-After=network-online.target postgresql.service flux-portd.service victoriametrics.service
-Wants=network-online.target postgresql.service flux-portd.service victoriametrics.service
+After=network-online.target postgresql.service flux-portd.service victoria-metrics.service
+Wants=network-online.target postgresql.service flux-portd.service victoria-metrics.service
 
 [Service]
 Type=exec

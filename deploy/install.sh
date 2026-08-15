@@ -43,7 +43,10 @@ SYSCONF="${SYSCONF:-/etc/flux}"
 WEBROOT="${WEBROOT:-/usr/share/flux/web}"
 STATE_DIR="${STATE_DIR:-/var/lib/flux}"
 VERSION_STAMP="${VERSION_STAMP:-$STATE_DIR/installed-version}"
-BACKUP_ROOT="${BACKUP_ROOT:-$STATE_DIR/backups}"
+# Deliberately outside $STATE_DIR: that directory is fluxd's StateDirectory,
+# owned and writable by the unprivileged daemon — which must not be able to
+# touch the binaries and database dump that a root rollback will reinstall.
+BACKUP_ROOT="${BACKUP_ROOT:-/var/lib/flux-backups}"
 
 WANT_VERSION="latest"
 FROM_SOURCE=false
@@ -466,6 +469,14 @@ ensure_accounts() {
 
 backup_current() {
     $IS_UPGRADE || return 0
+
+    # Backups written by releases up to 0.1.4 live inside fluxd's state
+    # directory; carry them to the new root once so rollback and pruning keep
+    # seeing one history.
+    if [[ -d $STATE_DIR/backups && $BACKUP_ROOT != "$STATE_DIR/backups" && ! -e $BACKUP_ROOT ]]; then
+        info "moving existing backups from $STATE_DIR/backups to $BACKUP_ROOT"
+        mv "$STATE_DIR/backups" "$BACKUP_ROOT"
+    fi
 
     BACKUP_DIR="$BACKUP_ROOT/${CURRENT_VERSION}-$(date -u +%Y%m%dT%H%M%SZ)"
     step "Backing up $CURRENT_VERSION to $BACKUP_DIR"
@@ -916,13 +927,42 @@ stop_services() {
     return 0
 }
 
+# Starts every unit, and keeps going when one fails.
+#
+# Not `systemctl enable --now` under `set -e`: a unit that will not start used
+# to kill the whole script right here — before fluxd was started, so the web UI
+# went down with it, and before main() could reach the rollback that exists for
+# exactly this situation. Each failure prints the unit's own journal, because
+# "control process exited with error code" says nothing an operator can act on.
+#
+# VictoriaMetrics is best-effort, as everywhere else: a metrics store that will
+# not start costs the historical charts, not the appliance.
 start_services() {
     have_systemd || return 0
     step "Starting services"
-    local unit
+    local unit failed=""
     while read -r unit; do
-        systemctl enable --now "$unit"
+        # A unit that crash-looped earlier may be sitting at its start limit,
+        # where even a fixed service refuses to start with "repeated too
+        # quickly" — which would read as this install failing.
+        systemctl reset-failed "$unit" 2>/dev/null || true
+
+        if systemctl enable --now "$unit"; then
+            continue
+        fi
+
+        warn "$unit failed to start; its last words were:"
+        journalctl -u "$unit" -n 25 --no-pager >&2 || true
+
+        if [[ $unit == victoria-metrics.service ]]; then
+            warn "continuing without it; analytics stays empty until it serves"
+        else
+            failed="$unit"
+        fi
     done < <(flux_units)
+
+    [[ -z $failed ]] || return 1
+    return 0
 }
 
 # fluxd answers /system/health with 401 until you sign in, which is still proof
@@ -987,7 +1027,7 @@ do_uninstall() {
             as_postgres psql -q -c "DROP ROLE IF EXISTS $DB_USER;" || true
         fi
 
-        rm -rf "$SYSCONF" "$STATE_DIR"
+        rm -rf "$SYSCONF" "$STATE_DIR" "$BACKUP_ROOT" /var/lib/flux-portd
         getent passwd "$SERVICE_USER" >/dev/null && userdel "$SERVICE_USER" 2>/dev/null || true
         getent group  "$SERVICE_USER" >/dev/null && groupdel "$SERVICE_USER" 2>/dev/null || true
 
@@ -1130,14 +1170,20 @@ main() {
     configure_firewall
 
     if $DO_START; then
-        start_services
-        if ! wait_for_health; then
+        # A unit that fails to start and a daemon that starts but never answers
+        # are the same failure to the operator, and take the same exit: roll
+        # back an upgrade, or die on a fresh install with the journal above
+        # saying why.
+        if ! start_services || ! wait_for_health; then
             if $IS_UPGRADE; then
                 rollback
-                die "the new version did not come up; rolled back to $CURRENT_VERSION"
+                die "the new version did not come up; rolled back to $CURRENT_VERSION.
+       The journal output above says why it failed — note that a bad
+       $SYSCONF/portd.yaml or fluxd.env fails the old version the same way."
             fi
-            die "fluxd did not start. The journal above says why; on a fresh install
-       the usual cause is DATABASE_URL in $SYSCONF/fluxd.env."
+            die "Flux did not start. The journal above says why; on a fresh install
+       the usual causes are DATABASE_URL in $SYSCONF/fluxd.env and the
+       allow list in $SYSCONF/portd.yaml."
         fi
     fi
 

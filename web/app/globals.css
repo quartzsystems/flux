@@ -966,9 +966,10 @@ input[type='checkbox'] {
   width: 100%;
 }
 
-/* uPlot ships its own stylesheet, which assumes a light page. Rather than
-   importing and overriding it, the handful of rules that matter are set here
-   against the design tokens. */
+/* uPlot's stylesheet is imported where uPlot is used (LiveChart, analytics) —
+   it is structural, providing the absolute positioning of the axis and overlay
+   layers, and charts collapse without it. The rules here only re-colour its
+   light-page defaults against the design tokens. */
 .live-chart .u-wrap {
   position: relative;
 }

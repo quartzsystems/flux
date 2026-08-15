@@ -13,6 +13,13 @@
  * length. The arrays here are mutated in place and sliced to the window.
  */
 
+// uPlot's own stylesheet is structural, not just cosmetic: it is what makes
+// `.u-axis`, `.u-over`, and `.u-under` absolutely positioned. Without it the
+// axis divs flow as ordinary blocks — tick labels stack down the left edge and
+// the canvas spills out of its card. The dark theming stays in globals.css,
+// layered over this.
+import 'uplot/dist/uPlot.min.css';
+
 import uPlot from 'uplot';
 import { useEffect, useRef, useState } from 'react';
 

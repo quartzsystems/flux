@@ -144,7 +144,16 @@ mod platform {
     /// Per-NUMA-node tree, used to report hugepages per node.
     const NUMA_NODES: &str = "/sys/devices/system/node";
     /// Where we remember the kernel driver a device had before we took it away.
-    const ORIGINAL_DRIVERS: &str = "/var/lib/flux/original-drivers";
+    ///
+    /// Inside this helper's own state directory. It used to live under
+    /// `/var/lib/flux`, but that directory belongs to `fluxd`: systemd chowns a
+    /// StateDirectory to its unit's user, and systemd ≥ 256 refuses to spawn a
+    /// service whose state directory is owned by someone unexpected — so the
+    /// root helper stopped starting the moment `fluxd` had run once.
+    const ORIGINAL_DRIVERS: &str = "/var/lib/flux-portd/original-drivers";
+    /// Where records lived before 0.1.5. Read as a fallback so a port bound to
+    /// DPDK by an older version still knows its way back to the kernel driver.
+    const LEGACY_ORIGINAL_DRIVERS: &str = "/var/lib/flux/original-drivers";
 
     /// Reads one file and trims trailing whitespace.
     fn read_trimmed(path: impl AsRef<Path>) -> Option<String> {
@@ -284,7 +293,11 @@ mod platform {
 
     /// Reads back the pre-Flux driver for a device, if we recorded one.
     fn recall_original_driver(pci: &PciAddr) -> Option<String> {
-        read_trimmed(Path::new(ORIGINAL_DRIVERS).join(pci.as_str())).filter(|s| !s.is_empty())
+        [ORIGINAL_DRIVERS, LEGACY_ORIGINAL_DRIVERS]
+            .iter()
+            .find_map(|dir| {
+                read_trimmed(Path::new(dir).join(pci.as_str())).filter(|s| !s.is_empty())
+            })
     }
 
     /// Runs a command, turning a non-zero exit into an `OpError`.

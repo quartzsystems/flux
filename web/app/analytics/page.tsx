@@ -12,6 +12,9 @@
 
 import { ChartLine, RefreshCw } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
+// Structural, not cosmetic — see the note in components/LiveChart.tsx.
+import 'uplot/dist/uPlot.min.css';
+
 import uPlot from 'uplot';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
