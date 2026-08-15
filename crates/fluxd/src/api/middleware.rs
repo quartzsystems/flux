@@ -52,9 +52,12 @@ pub async fn authenticate(
 /// Attaches the content security policy for the API and the UI shell.
 ///
 /// Everything is locked to `'self'` — the appliance may be offline and loads no
-/// third-party anything — and `frame-ancestors 'none'` is the clickjacking
+/// third-party anything — and `frame-ancestors 'self'` is the clickjacking
 /// defence that matters for a tool whose buttons start and stop line-rate
-/// traffic.
+/// traffic. `'self'` rather than `'none'`: the run report is displayed in a
+/// same-origin iframe on the report page, and `'none'` forbids even that — the
+/// attack being defended against is a *foreign* page framing this UI, which
+/// `'self'` still blocks.
 ///
 /// `script-src` has to allow `'unsafe-inline'`: a Next.js static export bootstraps
 /// itself from inline `<script>` tags, and with `output: 'export'` there is no
@@ -73,7 +76,7 @@ pub fn security_headers() -> tower_http::set_header::SetResponseHeaderLayer<axum
              font-src 'self'; \
              connect-src 'self' ws: wss:; \
              object-src 'none'; \
-             frame-ancestors 'none'; \
+             frame-ancestors 'self'; \
              base-uri 'self'; \
              form-action 'self'",
         ),

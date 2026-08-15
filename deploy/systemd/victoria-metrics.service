@@ -43,7 +43,14 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 LockPersonality=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @obsolete
+# @resources stays allowed: VictoriaMetrics is a Go binary, and the Go runtime
+# raises RLIMIT_NOFILE with setrlimit at startup. Denying it under the default
+# seccomp action kills the process with SIGSYS before main() — the service
+# "starts" (Type=simple completes at exec) and is dead a millisecond later.
+SystemCallFilter=~@privileged @obsolete
+# And if anything else on the deny list is ever hit, fail the one call rather
+# than the whole process — Go checks errno and carries on.
+SystemCallErrorNumber=EPERM
 
 ReadWritePaths=/var/lib/victoria-metrics
 
